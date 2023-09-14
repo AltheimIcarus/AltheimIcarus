@@ -1,0 +1,94 @@
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_dense_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_dense_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_dense_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_dense_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_dense_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_dense_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_dense_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_dense_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_dense_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_dense_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_dense_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_dense_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+///////////////////////////////////////////////////////////////////////
+
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_sparse_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_sparse_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_sparse_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_sparse_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_sparse_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_sparse_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_sparse_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_sparse_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_sparse_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_sparse_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_sparse_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_sparse_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_sparse_4_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_sparse_4_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_sparse_4_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+///////////////////////////////////////////////////////////////////////
+
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_dense_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_dense_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_dense_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_dense_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_dense_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_dense_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_dense_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_dense_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_dense_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_dense_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_dense_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_dense_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+///////////////////////////////////////////////////////////////////////
+
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_sparse_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_sparse_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_sparse_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_sparse_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_sparse_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/human/data_graph/human.graph -q ../../test/dataset/human/query_graph/query_sparse_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_sparse_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_sparse_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/patents/data_graph/patents.graph -q ../../test/dataset/patents/query_graph/query_sparse_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_sparse_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_sparse_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/yeast/data_graph/yeast.graph -q ../../test/dataset/yeast/query_graph/query_sparse_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_sparse_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_sparse_8_1.graph -filter NLF -order QSI -engine QSI -num MAX
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_sparse_8_1.graph -filter GQL -order GQL -engine GQL -num MAX
+
+./SubgraphMatching.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_8_1.graph -filter CECI -order CECI -engine CECI -num MAX
+
+cd build
+cmake ..
+make
+cd matching
+
+./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_sparse_8_1.graph -filter GQL

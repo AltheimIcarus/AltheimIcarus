@@ -13,6 +13,11 @@ typedef unsigned int ui;
 typedef uint32_t VertexID;
 typedef ui LabelID;
 
+struct TimeOutException {
+    bool is_throwable = false;
+    //std::string msg = "Timeout after 5 minutes\n";
+};
+
 enum MatchingIndexType {
     VertexCentric = 0,
     EdgeCentric = 1

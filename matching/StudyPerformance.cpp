@@ -15,6 +15,35 @@
 #include "GenerateQueryPlan.h"
 #include "EvaluateQuery.h"
 
+#include "stdlib.h"
+#include "stdio.h"
+#include "string.h"
+
+int parseLine(char* line){
+    // This assumes that a digit will be found and the line ends in " Kb".
+    int i = strlen(line);
+    const char* p = line;
+    while (*p <'0' || *p > '9') p++;
+    line[i-3] = '\0';
+    i = atoi(p);
+    return i;
+}
+
+int getValue(){ //Note: this value is in KB!
+    FILE* file = fopen("/proc/self/status", "r");
+    int result = -1;
+    char line[128];
+
+    while (fgets(line, 128, file) != NULL){
+        if (strncmp(line, "VmPeak:", 7) == 0){
+            result = parseLine(line);
+            break;
+        }
+    }
+    fclose(file);
+    return result;
+}
+
 #define NANOSECTOSEC(elapsed_time) ((elapsed_time)/(double)1000000000)
 #define BYTESTOMB(memory_cost) ((memory_cost)/(double)(1024 * 1024))
 
@@ -187,6 +216,9 @@ int main(int argc, char** argv) {
     end = std::chrono::high_resolution_clock::now();
     double filter_vertices_time_in_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 
+    for(auto i=0; i<query_graph->getVerticesCount(); ++i)
+        std::cout << "[" << i << "]: " << candidates_count[i] << std::endl;
+        
     // Compute the candidates false positive ratio.
 #ifdef OPTIMAL_CANDIDATES
     std::vector<ui> optimal_candidates_count;
@@ -306,18 +338,19 @@ int main(int argc, char** argv) {
     size_t call_count = 0;
     size_t time_limit = 0;
     sscanf(input_time_limit.c_str(), "%zu", &time_limit);
+    TimeOutException* timeout = new TimeOutException();
 
     start = std::chrono::high_resolution_clock::now();
 
     if (input_engine_type == "EXPLORE") {
         embedding_count = EvaluateQuery::exploreGraph(data_graph, query_graph, edge_matrix, candidates,
-                                                      candidates_count, matching_order, pivots, output_limit, call_count);
+                                                      candidates_count, matching_order, pivots, output_limit, call_count, timeout);
     } else if (input_engine_type == "LFTJ") {
         embedding_count = EvaluateQuery::LFTJ(data_graph, query_graph, edge_matrix, candidates, candidates_count,
                                               matching_order, output_limit, call_count);
     } else if (input_engine_type == "GQL") {
         embedding_count = EvaluateQuery::exploreGraphQLStyle(data_graph, query_graph, candidates, candidates_count,
-                                                             matching_order, output_limit, call_count);
+                                                             matching_order, output_limit, call_count, timeout);
     } else if (input_engine_type == "QSI") {
         embedding_count = EvaluateQuery::exploreQuickSIStyle(data_graph, query_graph, candidates, candidates_count,
                                                              matching_order, pivots, output_limit, call_count);
@@ -326,7 +359,7 @@ int main(int argc, char** argv) {
         embedding_count = EvaluateQuery::exploreDPisoStyle(data_graph, query_graph, dpiso_tree,
                                                            edge_matrix, candidates, candidates_count,
                                                            weight_array, dpiso_order, output_limit,
-                                                           call_count);
+                                                           call_count, timeout);
 //        embedding_count = EvaluateQuery::exploreDPisoRecursiveStyle(data_graph, query_graph, dpiso_tree,
 //                                                           edge_matrix, candidates, candidates_count,
 //                                                           weight_array, dpiso_order, output_limit,
@@ -337,7 +370,7 @@ int main(int argc, char** argv) {
     }
     else if (input_engine_type == "CECI") {
         embedding_count = EvaluateQuery::exploreCECIStyle(data_graph, query_graph, ceci_tree, candidates, candidates_count, TE_Candidates,
-                NTE_Candidates, ceci_order, output_limit, call_count);
+                NTE_Candidates, ceci_order, output_limit, call_count, timeout);
     }
     else {
         std::cout << "The specified engine type '" << input_engine_type << "' is not supported." << std::endl;
@@ -408,6 +441,8 @@ int main(int argc, char** argv) {
     printf("Preprocessing time (seconds): %.4lf\n", NANOSECTOSEC(preprocessing_time_in_ns));
     printf("Total time (seconds): %.4lf\n", NANOSECTOSEC(total_time_in_ns));
     printf("Memory cost (MB): %.4lf\n", BYTESTOMB(memory_cost_in_bytes));
+    float mem_used = (float) getValue() / 1000.00;
+    printf("Max memory used (mb): %.4lf\n", mem_used);
     printf("#Embeddings: %zu\n", embedding_count);
     printf("Call Count: %zu\n", call_count);
     printf("Per Call Count Time (nanoseconds): %.4lf\n", enumeration_time_in_ns / (call_count == 0 ? 1 : call_count));

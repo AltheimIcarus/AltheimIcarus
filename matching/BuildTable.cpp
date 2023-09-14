@@ -126,6 +126,14 @@ void BuildTable::buildTables(const Graph *data_graph, const Graph *query_graph, 
                 edge_matrix[u][u_nbr]->offset_[j] = edge_matrix[u][u_nbr]->offset_[j - 1];
             }
             edge_matrix[u][u_nbr]->offset_[0] = 0;
+
+            #if DEBUGGING_MODE == 1
+            std::cout << "BuildIndex(): u[" << u << "],v[" << u_nbr 
+                << "]:\n\tedge_count[u][v]" << edge_matrix[u][u_nbr]->edge_count_
+                << "\n\tnode_count[u][v]" << edge_matrix[u][u_nbr]->vertex_count_
+                << "\n\tedge_count[v][u]" << edge_matrix[u_nbr][u]->edge_count_
+                << "\n\tnode_count[v][u]" << edge_matrix[u_nbr][u]->vertex_count_ << std::endl;
+            #endif
         }
 
         for (ui i = 0; i < updated_flag_count; ++i) {
@@ -314,9 +322,10 @@ size_t BuildTable::computeMemoryCostInBytes(const Graph *query_graph, ui *candid
             VertexID end_vertex = j;
 
             if (begin_vertex < end_vertex && query_graph->checkEdgeExistence(begin_vertex, end_vertex)) {
+                
                 Edges& edge = *edge_matrix[begin_vertex][end_vertex];
                 memory_cost_in_bytes += edge.edge_count_ * per_element_size + edge.vertex_count_ * per_element_size;
-
+                
                 Edges& reverse_edge = *edge_matrix[end_vertex][begin_vertex];
                 memory_cost_in_bytes += reverse_edge.edge_count_ * per_element_size + reverse_edge.vertex_count_ * per_element_size;
             }
@@ -352,6 +361,7 @@ size_t BuildTable::computeMemoryCostInBytes(const Graph *query_graph, ui *candid
         }
 
         // TE_Candidates
+        if (TE_Candidates.size() == 0) continue;
         memory_cost_in_bytes += TE_Candidates[u].size() * per_element_size;
         for (auto iter = TE_Candidates[u].begin(); iter != TE_Candidates[u].end(); ++iter) {
             memory_cost_in_bytes += iter->second.size() * per_element_size;

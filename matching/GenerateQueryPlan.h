@@ -29,6 +29,12 @@ public:
                              ui *&order, ui *&pivot, TreeNode *tree, ui *bfs_order, ui *candidates_count);
 
     static void
+    generateCFLQueryPlanB(const Graph *data_graph, const Graph *query_graph,
+                            std::vector<std::unordered_map<VertexID, std::vector<VertexID>>> &TE_Candidates,
+                            std::vector<std::vector<std::unordered_map<VertexID, std::vector<VertexID>>>> &NTE_Candidates,
+                            ui *&order, ui *&pivot, TreeNode *tree, ui *bfs_order, ui *candidates_count);
+
+    static void
     generateDSPisoQueryPlan(const Graph *query_graph, Edges ***edge_matrix, ui *&order, ui *&pivot,
                                 TreeNode *tree, ui *bfs_order, ui *candidates_count, ui **&weight_array);
 
@@ -48,6 +54,10 @@ private:
                                         std::vector<std::vector<ui>> &paths);
     static void estimatePathEmbeddsingsNum(std::vector<ui> &path, Edges ***edge_matrix,
                                            std::vector<size_t> &estimated_embeddings_num);
+
+    static void estimatePathEmbeddsingsNumB(std::vector<ui> &path, ui max_size,
+                                            std::vector<std::vector<std::unordered_map<VertexID, std::vector<VertexID>>>> &NTE_Candidates,
+                                            std::vector<size_t> &estimated_embeddings_num);
 
     static void generateCorePaths(const Graph* query_graph, TreeNode* tree_node, VertexID cur_vertex, std::vector<ui> &cur_core_path,
                                   std::vector<std::vector<ui>> &core_paths);

@@ -19,11 +19,18 @@ public:
                                         VertexID *&order);
     static void generateCECIFilterPlan(const Graph *data_graph, const Graph *query_graph, TreeNode *&tree,
                                        VertexID *&order);
+
+    static void generateL2MatchFilterPlan(const Graph *data_graph, const Graph *query_graph, TreeNode *&tree,
+                                       VertexID *&order);
+
+    static void generateL2MatchFilterPlanB(const Graph *data_graph, const Graph *query_graph, TreeNode *&tree,
+                                      VertexID *&order);
 private:
     static VertexID selectTSOFilterStartVertex(const Graph *data_graph, const Graph *query_graph);
     static VertexID selectCFLFilterStartVertex(const Graph *data_graph, const Graph *query_graph);
     static VertexID selectDPisoStartVertex(const Graph *data_graph, const Graph *query_graph);
     static VertexID selectCECIStartVertex(const Graph *data_graph, const Graph *query_graph);
+    static VertexID selectL2MatchStartVertex(const Graph *data_graph, const Graph *query_graph);
 };
 
 

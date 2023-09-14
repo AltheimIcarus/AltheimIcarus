@@ -5,6 +5,7 @@
 #ifndef SUBGRAPHMATCHING_CONFIG_H
 #define SUBGRAPHMATCHING_CONFIG_H
 
+#define DEBUGGING_MODE 0
 
 /**
  * Set the maximum size of a query graph. By default, we set the value as 64.
@@ -52,6 +53,18 @@
  */
 
 // #define DISTRIBUTION
+
+/**
+ * Enable Label Pair Filtering optimization method.
+ */
+
+//#define LPF
+
+/**
+ * Enable Jump & Redo enumeration optimization method.
+ */
+
+//#define JR
 
 
 #define PRINT_SEPARATOR "------------------------------"

@@ -6,6 +6,7 @@
 #define SUBGRAPHMATCHING_GRAPH_H
 
 #include <unordered_map>
+#include <vector>
 #include <iostream>
 
 #include "configuration/types.h"
@@ -24,9 +25,11 @@ private:
     ui labels_count_;
     ui max_degree_;
     ui max_label_frequency_;
+    double avg_deg_;
 
     ui* offsets_;
     VertexID * neighbors_;
+    VertexID* neighbors_by_labels_;
     LabelID* labels_;
     ui* reverse_index_offsets_;
     ui* reverse_index_;
@@ -36,9 +39,16 @@ private:
 
     std::unordered_map<LabelID, ui> labels_frequency_;
 
+    ui* spatial_index_;
+    ui max_spatial_index_;
+
 #if OPTIMIZED_LABELED_GRAPH == 1
     ui* labels_offsets_;
     std::unordered_map<LabelID, ui>* nlf_;
+    std::unordered_map<LabelID, std::pair<ui,ui>>* nlo; // nlo[u][label] = (start index, count) for list of adjs with same label id
+    // Label Pair Index [L(u)][L(v)] = [u'], v' is accessible via CSR thus not required in the label pair index
+    std::vector<std::unordered_map<LabelID, std::vector<VertexID >>> label_pairs;
+
 #endif
 
 private:
@@ -58,43 +68,56 @@ public:
         labels_count_ = 0;
         max_degree_ = 0;
         max_label_frequency_ = 0;
+        avg_deg_ = 0.0;
         core_length_ = 0;
 
         offsets_ = NULL;
         neighbors_ = NULL;
+        neighbors_by_labels_ = NULL;
         labels_ = NULL;
         reverse_index_offsets_ = NULL;
         reverse_index_ = NULL;
         core_table_ = NULL;
         labels_frequency_.clear();
 
+        spatial_index_ = NULL;
+        max_spatial_index_ = 0;
+
 #if OPTIMIZED_LABELED_GRAPH == 1
         labels_offsets_ = NULL;
         nlf_ = NULL;
+        nlo = NULL;
 #endif
     }
 
     ~Graph() {
         delete[] offsets_;
         delete[] neighbors_;
+        delete[] neighbors_by_labels_;
         delete[] labels_;
         delete[] reverse_index_offsets_;
         delete[] reverse_index_;
         delete[] core_table_;
 #if OPTIMIZED_LABELED_GRAPH == 1
         delete[] labels_offsets_;
+        delete[] spatial_index_;
         delete[] nlf_;
+        delete[] nlo;
 #endif
     }
 
 public:
     void loadGraphFromFile(const std::string& file_path);
+    void loadGraphFromFileBeta(const std::string& file_path);
     void loadGraphFromFileCompressed(const std::string& degree_path, const std::string& edge_path,
                                      const std::string& label_path);
     void storeComparessedGraph(const std::string& degree_path, const std::string& edge_path,
                                const std::string& label_path);
     void printGraphMetaData();
 public:
+    const double getAverageDegree() const {
+        return avg_deg_;
+    }
     const ui getLabelsCount() const {
         return labels_count_;
     }
@@ -145,44 +168,55 @@ public:
         return reverse_index_ + reverse_index_offsets_[id];
     }
 
+    const ui getDensity() const {
+        return 2 * edges_count_ / (vertices_count_ * (vertices_count_ - 1));
+    }
+
 #if OPTIMIZED_LABELED_GRAPH == 1
-    const ui * getNeighborsByLabel(const VertexID id, const LabelID label, ui& count) const {
-        ui offset = id * labels_count_ + label;
-        count = labels_offsets_[offset + 1] - labels_offsets_[offset];
-        return neighbors_ + labels_offsets_[offset];
+    // l2Match
+    const ui * getNeighborsByLabel(const VertexID id, const LabelID neighbor_label, ui& count) const {
+        auto it = nlo[id].find(neighbor_label);
+        count = it->second.second;
+        return neighbors_by_labels_ + it->second.first;
     }
 
     const std::unordered_map<LabelID, ui>* getVertexNLF(const VertexID id) const {
         return nlf_ + id;
     }
-
-    bool checkEdgeExistence(const VertexID u, const VertexID v, const LabelID u_label) const {
-        ui count = 0;
-        const VertexID* neighbors = getNeighborsByLabel(v, u_label, count);
-        int begin = 0;
-        int end = count - 1;
-        while (begin <= end) {
-            int mid = begin + ((end - begin) >> 1);
-            if (neighbors[mid] == u) {
-                return true;
-            }
-            else if (neighbors[mid] > u)
-                end = mid - 1;
-            else
-                begin = mid + 1;
-        }
-
-        return false;
+    // l2Match
+    const ui getVertexLabelFrequency(const ui id, const LabelID neighbor_label) const {
+        auto it = nlo[id].find(neighbor_label);
+        if (it != nlo[id].end())
+            return it->second.second;
+        return 0;
     }
+    // l2Match
+    const ui getLabelPairFrequency(const LabelID u_label, const LabelID neighbor_label) const {
+        auto it = label_pairs[u_label].find(neighbor_label);
+        if (it != label_pairs[u_label].end())
+            return it->second.size();
+        return 0;
+    }
+    // l2Match
+    const std::unordered_map<LabelID, std::vector<ui>>::const_iterator getLabelPairIterator(const LabelID u_label, const LabelID neighbor_label) const {
+        return label_pairs[u_label].find(neighbor_label);
+    }
+
 #endif
 
-    bool checkEdgeExistence(VertexID u, VertexID v) const {
+    bool checkEdgeExistence(VertexID u, VertexID v, bool search_by_label = false) const {
         if (getVertexDegree(u) < getVertexDegree(v)) {
             std::swap(u, v);
         }
         ui count = 0;
-        const VertexID* neighbors =  getVertexNeighbors(v, count);
 
+        const VertexID* neighbors = NULL;
+        if (search_by_label) {
+            neighbors =  getNeighborsByLabel(v, getVertexLabel(u), count);
+
+        } else {
+            neighbors =  getVertexNeighbors(v, count);
+        }
         int begin = 0;
         int end = count - 1;
         while (begin <= end) {
@@ -199,7 +233,17 @@ public:
         return false;
     }
 
+    const ui getSpatialIndex(VertexID id) const {
+        return spatial_index_[id];
+    }
+
+    const ui getMaxSpatialIndex() const {
+        return max_spatial_index_;
+    }
+
     void buildCoreTable();
+
+    void computeSpatialDistance();
 };
 
 

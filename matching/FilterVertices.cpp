@@ -8,7 +8,10 @@
 #include <utility/graphoperations.h>
 #include <vector>
 #include <algorithm>
-#define INVALID_VERTEX_ID 100000000
+#include <limits.h>
+#include <queue>
+#define INVALID_VERTEX_ID UINT_MAX
+
 
 bool
 FilterVertices::LDFFilter(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count) {
@@ -55,9 +58,13 @@ FilterVertices::NLFFilter(const Graph *data_graph, const Graph *query_graph, ui 
 bool
 FilterVertices::GQLFilter(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count) {
     // Local refinement.
+#ifdef LPF
+    if (!LPFilter(data_graph, query_graph, candidates, candidates_count))
+        return false;
+#else
     if (!NLFFilter(data_graph, query_graph, candidates, candidates_count))
         return false;
-
+#endif
     // Allocate buffer.
     ui query_vertex_num = query_graph->getVerticesCount();
     ui data_vertex_num = data_graph->getVerticesCount();
@@ -173,7 +180,12 @@ FilterVertices::CFLFilter(const Graph *data_graph, const Graph *query_graph, ui 
     GenerateFilteringPlan::generateCFLFilterPlan(data_graph, query_graph, tree, order, level_count, level_offset);
 
     VertexID start_vertex = order[0];
+
+#ifdef LPF
+    computeCandidateWithNLF_LPF(data_graph, query_graph, start_vertex, candidates_count[start_vertex], candidates[start_vertex]);
+#else
     computeCandidateWithNLF(data_graph, query_graph, start_vertex, candidates_count[start_vertex], candidates[start_vertex]);
+#endif
 
     ui* updated_flag = new ui[data_graph->getVerticesCount()];
     ui* flag = new ui[data_graph->getVerticesCount()];
@@ -222,9 +234,13 @@ FilterVertices::CFLFilter(const Graph *data_graph, const Graph *query_graph, ui 
 bool
 FilterVertices::DPisoFilter(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count,
                             ui *&order, TreeNode *&tree) {
+#ifdef LPF
+    if (!LPFilter(data_graph, query_graph, candidates, candidates_count))
+        return false;
+#else
     if (!LDFFilter(data_graph, query_graph, candidates, candidates_count))
         return false;
-
+#endif
     GenerateFilteringPlan::generateDPisoFilterPlan(data_graph, query_graph, tree, order);
 
     ui query_vertices_num = query_graph->getVerticesCount();
@@ -269,7 +285,1050 @@ FilterVertices::CECIFilter(const Graph *data_graph, const Graph *query_graph, ui
     ui data_vertices_count = data_graph->getVerticesCount();
     // Find the pivots.
     VertexID root = order[0];
+
+#ifdef LPF
+    computeCandidateWithNLF_LPF(data_graph, query_graph, root, candidates_count[root], candidates[root]);
+#else
     computeCandidateWithNLF(data_graph, query_graph, root, candidates_count[root], candidates[root]);
+#endif
+
+    if (candidates_count[root] == 0)
+        return false;
+
+    // TE_Candidates construction and filtering.
+    std::vector<ui> updated_flag(data_vertices_count);
+    std::vector<ui> flag(data_vertices_count);
+    std::fill(flag.begin(), flag.end(), 0);
+    std::vector<bool> visited_query_vertex(query_vertices_count);
+    std::fill(visited_query_vertex.begin(), visited_query_vertex.end(), false);
+
+    visited_query_vertex[root] = true;
+
+    TE_Candidates.resize(query_vertices_count);
+
+    for (ui i = 1; i < query_vertices_count; ++i) {
+        VertexID u = order[i];
+        TreeNode& u_node = tree[u];
+        VertexID u_p = tree[u].parent_;
+
+        ui u_label = query_graph->getVertexLabel(u);
+        ui u_degree = query_graph->getVertexDegree(u);
+#if OPTIMIZED_LABELED_GRAPH == 1
+        const std::unordered_map<LabelID, ui>* u_nlf = query_graph->getVertexNLF(u);
+#endif
+        candidates_count[u] = 0;
+
+        visited_query_vertex[u] = true;
+        VertexID* frontiers = candidates[u_p];
+        ui frontiers_count = candidates_count[u_p];
+
+        for (ui j = 0; j < frontiers_count; ++j) {
+            VertexID v_f = frontiers[j];
+
+            if (v_f == INVALID_VERTEX_ID)
+                continue;
+
+            ui nbrs_cnt;
+#ifdef LPF
+            const VertexID* nbrs = data_graph->getNeighborsByLabel(v_f, u_label, nbrs_cnt);
+#else
+            const VertexID* nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+#endif
+
+            auto iter_pair = TE_Candidates[u].emplace(v_f, std::vector<VertexID>());
+            for (ui k = 0; k < nbrs_cnt; ++k) {
+                VertexID v = nbrs[k];
+
+                if (data_graph->getVertexLabel(v) == u_label && data_graph->getVertexDegree(v) >= u_degree) {
+
+                    // NLF check
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+                    const std::unordered_map<LabelID, ui>* v_nlf = data_graph->getVertexNLF(v);
+
+                    if (v_nlf->size() >= u_nlf->size()) {
+                        bool is_valid = true;
+
+                        for (auto element : *u_nlf) {
+                            auto iter = v_nlf->find(element.first);
+                            if (iter == v_nlf->end() || iter->second < element.second) {
+                                is_valid = false;
+                                break;
+                            }
+                        }
+
+                        if (is_valid) {
+                            iter_pair.first->second.push_back(v);
+                            if (flag[v] == 0) {
+                                flag[v] = 1;
+                                candidates[u][candidates_count[u]++] = v;
+                            }
+                        }
+                    }
+#else
+                    iter_pair.first->second.push_back(v);
+                    if (flag[v] == 0) {
+                        flag[v] = 1;
+                        candidates[u][candidates_count[u]++] = v;
+                    }
+#endif
+                }
+            }
+
+            if (iter_pair.first->second.empty()) {
+                frontiers[j] = INVALID_VERTEX_ID;
+                for (ui k = 0; k < tree[u_p].children_count_; ++k) {
+                    VertexID u_c = tree[u_p].children_[k];
+                    if (visited_query_vertex[u_c]) {
+                        TE_Candidates[u_c].erase(v_f);
+                    }
+                }
+            }
+        }
+
+        if (candidates_count[u] == 0)
+            return false;
+
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+            flag[v] = 0;
+        }
+    }
+
+    // NTE_Candidates construction and filtering.
+    NTE_Candidates.resize(query_vertices_count);
+    for (auto& value : NTE_Candidates) {
+        value.resize(query_vertices_count);
+    }
+
+    for (ui i = 1; i < query_vertices_count; ++i) {
+        VertexID u = order[i];
+        TreeNode &u_node = tree[u];
+
+        ui u_label = query_graph->getVertexLabel(u);
+        ui u_degree = query_graph->getVertexDegree(u);
+#if OPTIMIZED_LABELED_GRAPH == 1
+        const std::unordered_map<LabelID, ui> *u_nlf = query_graph->getVertexNLF(u);
+#endif
+        for (ui l = 0; l < u_node.bn_count_; ++l) {
+            VertexID u_p = u_node.bn_[l];
+            VertexID *frontiers = candidates[u_p];
+            ui frontiers_count = candidates_count[u_p];
+
+            for (ui j = 0; j < frontiers_count; ++j) {
+                VertexID v_f = frontiers[j];
+
+                if (v_f == INVALID_VERTEX_ID)
+                    continue;
+
+                ui nbrs_cnt;
+
+#ifdef LPF
+                const VertexID* nbrs = data_graph->getNeighborsByLabel(v_f, u_label, nbrs_cnt);
+#else
+                const VertexID* nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+#endif
+
+                auto iter_pair = NTE_Candidates[u][u_p].emplace(v_f, std::vector<VertexID>());
+                for (ui k = 0; k < nbrs_cnt; ++k) {
+                    VertexID v = nbrs[k];
+
+                    if (data_graph->getVertexLabel(v) == u_label && data_graph->getVertexDegree(v) >= u_degree) {
+
+                        // NLF check
+#if OPTIMIZED_LABELED_GRAPH == 1
+                        const std::unordered_map<LabelID, ui> *v_nlf = data_graph->getVertexNLF(v);
+
+                        if (v_nlf->size() >= u_nlf->size()) {
+                            bool is_valid = true;
+
+                            for (auto element : *u_nlf) {
+                                auto iter = v_nlf->find(element.first);
+                                if (iter == v_nlf->end() || iter->second < element.second) {
+                                    is_valid = false;
+                                    break;
+                                }
+                            }
+
+                            if (is_valid) {
+                                iter_pair.first->second.push_back(v);
+                            }
+                        }
+#else
+                        iter_pair.first->second.push_back(v);
+#endif
+                    }
+                }
+
+                if (iter_pair.first->second.empty()) {
+                    frontiers[j] = INVALID_VERTEX_ID;
+                    for (ui k = 0; k < tree[u_p].children_count_; ++k) {
+                        VertexID u_c = tree[u_p].children_[k];
+                        TE_Candidates[u_c].erase(v_f);
+                    }
+                }
+            }
+        }
+    }
+
+    // Reverse BFS refine.
+    std::vector<std::vector<ui>> cardinality(query_vertices_count);
+    for (ui i = 0; i < query_vertices_count; ++i) {
+        cardinality[i].resize(candidates_count[i], 1);
+    }
+
+    std::vector<ui> local_cardinality(data_vertices_count);
+    std::fill(local_cardinality.begin(), local_cardinality.end(), 0);
+
+    for (int i = query_vertices_count - 1; i >= 0; --i) {
+        VertexID u = order[i];
+        TreeNode& u_node = tree[u];
+
+        ui flag_num = 0;
+        ui updated_flag_count = 0;
+
+        // Compute the intersection of TE_Candidates and NTE_Candidates.
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+
+            if (v == INVALID_VERTEX_ID)
+                continue;
+
+            if (flag[v] == flag_num) {
+                flag[v] += 1;
+                updated_flag[updated_flag_count++] = v;
+            }
+        }
+
+        for (ui j = 0; j < u_node.bn_count_; ++j) {
+            VertexID u_bn = u_node.bn_[j];
+            flag_num += 1;
+            for (auto iter = NTE_Candidates[u][u_bn].begin(); iter != NTE_Candidates[u][u_bn].end(); ++iter) {
+                for (auto v : iter->second) {
+                    if (flag[v] == flag_num) {
+                        flag[v] += 1;
+                    }
+                }
+            }
+        }
+
+        flag_num += 1;
+
+        // Get the cardinality of the candidates of u.
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+            if (v != INVALID_VERTEX_ID && flag[v] == flag_num) {
+                local_cardinality[v] = cardinality[u][j];
+            }
+            else {
+                cardinality[u][j] = 0;
+            }
+        }
+
+        VertexID u_p = u_node.parent_;
+        VertexID* frontiers = candidates[u_p];
+        ui frontiers_count = candidates_count[u_p];
+
+        // Loop over TE_Candidates.
+        for (ui j = 0; j < frontiers_count; ++j) {
+            VertexID v_f = frontiers[j];
+
+            if (v_f == INVALID_VERTEX_ID) {
+                cardinality[u_p][j] = 0;
+                continue;
+            }
+
+            ui temp_score = 0;
+            for (auto iter = TE_Candidates[u][v_f].begin(); iter != TE_Candidates[u][v_f].end();) {
+                VertexID v = *iter;
+                temp_score += local_cardinality[v];
+                if (local_cardinality[v] == 0) {
+                    iter = TE_Candidates[u][v_f].erase(iter);
+                    for (ui k = 0; k < u_node.children_count_; ++k) {
+                        VertexID u_c = u_node.children_[k];
+                        TE_Candidates[u_c].erase(v);
+                    }
+
+                    for (ui k = 0; k < u_node.fn_count_; ++k) {
+                        VertexID u_c = u_node.fn_[k];
+                        NTE_Candidates[u_c][u].erase(v);
+                    }
+                }
+                else {
+                    ++iter;
+                }
+            }
+
+            cardinality[u_p][j] *= temp_score;
+        }
+
+        // Clear updated flag.
+        for (ui j = 0; j < updated_flag_count; ++j) {
+            flag[updated_flag[j]] = 0;
+            local_cardinality[updated_flag[j]] = 0;
+        }
+    }
+
+    compactCandidates(candidates, candidates_count, query_vertices_count);
+    sortCandidates(candidates, candidates_count, query_vertices_count);
+
+
+    for (ui i = 0; i < query_vertices_count; ++i) {
+        if (candidates_count[i] == 0) {
+            return false;
+        }
+    }
+
+    for (ui i = 1; i < query_vertices_count; ++i) {
+        VertexID u = order[i];
+        TreeNode& u_node = tree[u];
+
+        // Clear TE_Candidates.
+        {
+            VertexID u_p = u_node.parent_;
+            auto iter = TE_Candidates[u].begin();
+            while (iter != TE_Candidates[u].end()) {
+                VertexID v_f = iter->first;
+                if (!std::binary_search(candidates[u_p], candidates[u_p] + candidates_count[u_p], v_f)) {
+                    iter = TE_Candidates[u].erase(iter);
+                }
+                else {
+                    std::sort(iter->second.begin(), iter->second.end());
+                    iter++;
+                }
+            }
+        }
+
+        // Clear NTE_Candidates.
+        {
+            for (ui j = 0; j < u_node.bn_count_; ++j) {
+                VertexID u_p = u_node.bn_[j];
+                auto iter = NTE_Candidates[u][u_p].end();
+                while (iter != NTE_Candidates[u][u_p].end()) {
+                    VertexID v_f = iter->first;
+                    if (!std::binary_search(candidates[u_p], candidates[u_p] + candidates_count[u_p], v_f)) {
+                        iter = NTE_Candidates[u][u_p].erase(iter);
+                    }
+                    else {
+                        std::sort(iter->second.begin(), iter->second.end());
+                        iter++;
+                    }
+                }
+            }
+        }
+    }
+
+//    for (ui i = 0; i < query_vertices_count; ++i) {
+//        VertexID u = i;
+//        std::cout << u << ':';
+//        for (ui j = 0; j < candidates_count[u]; ++j) {
+//            std::cout << candidates[u][j] << ' ';
+//        }
+//        std::cout << std::endl;
+//    }
+//
+//    for (ui i = 1; i < query_vertices_count; ++i) {
+//        VertexID u = order[i];
+//        // TE_Candidates
+//        std::cout << "TE_Candidates: " << u << ',' << tree[u].parent_ << std::endl;
+//        for (auto iter = TE_Candidates[u].begin(); iter != TE_Candidates[u].end(); ++iter) {
+//            std::cout << iter->first << ": ";
+//            for (auto v : iter->second) {
+//                std::cout << v << ' ';
+//                if (!data_graph->checkEdgeExistence(iter->first, v)) {
+//                    std::cout << "Edge does not exist" << std::endl;
+//                }
+//            }
+//            std::cout << std::endl;
+//        }
+//        std::cout << "-----" << std::endl;
+//        for (ui j = 0; j < tree[u].bn_count_; ++j) {
+//            VertexID u_bn = tree[u].bn_[j];
+//            std::cout << "NTE_Candidates: " << u << ',' << u_bn << std::endl;
+//            for (auto iter = NTE_Candidates[u][u_bn].begin(); iter != NTE_Candidates[u][u_bn].end(); ++iter) {
+//                std::cout << iter->first << ": ";
+//                for (auto v : iter->second) {
+//                    std::cout << v << ' ';
+//                    if (!data_graph->checkEdgeExistence(iter->first, v)) {
+//                        std::cout << "Edge does not exist" << std::endl;
+//                    }
+//                }
+//                std::cout << std::endl;
+//            }
+//            std::cout << "-----" << std::endl;
+//        }
+//    }
+
+    return true;
+}
+
+// l2Match with LPF + BCPRefine
+bool
+FilterVertices::l2MatchFilter(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count,
+                           ui *&order, TreeNode *&tree,  std::vector<std::unordered_map<VertexID, std::vector<VertexID >>> &TE_Candidates,
+                           std::vector<std::vector<std::unordered_map<VertexID, std::vector<VertexID>>>> &NTE_Candidates) {
+    GenerateFilteringPlan::generateL2MatchFilterPlan(data_graph, query_graph, tree, order);
+    //int level_count;
+    //ui* level_offset;
+    //GenerateFilteringPlan::generateL2MatchFilterPlanB(data_graph, query_graph, tree, order, level_count, level_offset);
+
+    allocateBuffer(data_graph, query_graph, candidates, candidates_count);
+
+    ui query_vertices_count = query_graph->getVerticesCount();
+    ui data_vertices_count = data_graph->getVerticesCount();
+    // Find the pivots.
+    VertexID root = order[0];
+    computeCandidateWithNLF_LPF(data_graph, query_graph, root, candidates_count[root], candidates[root]);
+
+    if (candidates_count[root] == 0)
+        return false;
+
+    // TE_Candidates construction and filtering.
+    std::vector<ui> updated_flag(data_vertices_count);
+    std::vector<ui> flag(data_vertices_count);
+    std::fill(flag.begin(), flag.end(), 0);
+    std::vector<bool> visited_query_vertex(query_vertices_count);
+    std::fill(visited_query_vertex.begin(), visited_query_vertex.end(), false);
+
+    visited_query_vertex[root] = true;
+
+    TE_Candidates.resize(query_vertices_count);
+
+    for (ui i = 1; i < query_vertices_count; ++i) {
+        VertexID u = order[i];
+        TreeNode& u_node = tree[u];
+        VertexID u_p = tree[u].parent_;
+
+        ui u_label = query_graph->getVertexLabel(u);
+        ui u_degree = query_graph->getVertexDegree(u);
+#if OPTIMIZED_LABELED_GRAPH == 1
+        const std::unordered_map<LabelID, ui>* u_nlf = query_graph->getVertexNLF(u);
+#endif
+        candidates_count[u] = 0;
+
+        visited_query_vertex[u] = true;
+        VertexID* frontiers = candidates[u_p];
+        ui frontiers_count = candidates_count[u_p];
+
+        for (ui j = 0; j < frontiers_count; ++j) {
+            VertexID v_f = frontiers[j];
+
+            if (v_f == INVALID_VERTEX_ID)
+                continue;
+
+            ui nbrs_cnt;
+#if OPTIMIZED_LABELED_GRAPH == 1
+            // NOVEL Label Pair Filtering with LPI
+            const VertexID* nbrs = data_graph->getNeighborsByLabel(v_f, u_label, nbrs_cnt);
+#else
+            const VertexID* nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+#endif
+
+            auto iter_pair = TE_Candidates[u].emplace(v_f, std::vector<VertexID>());
+            for (ui k = 0; k < nbrs_cnt; ++k) {
+                VertexID v = nbrs[k];
+
+                if (data_graph->getVertexDegree(v) >= u_degree) {
+
+                    // NLF check
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+                    const std::unordered_map<LabelID, ui>* v_nlf = data_graph->getVertexNLF(v);
+
+                    if (v_nlf->size() >= u_nlf->size()) {
+                        bool is_valid = true;
+
+                        for (auto element : *u_nlf) {
+                            auto iter = v_nlf->find(element.first);
+                            if (iter == v_nlf->end() || iter->second < element.second) {
+                                is_valid = false;
+                                break;
+                            }
+                        }
+
+                        if (is_valid) {
+                            iter_pair.first->second.push_back(v);
+                            if (flag[v] == 0) {
+                                flag[v] = 1;
+                                candidates[u][candidates_count[u]++] = v;
+                            }
+                        }
+                    }
+#else
+                    iter_pair.first->second.push_back(v);
+                    if (flag[v] == 0) {
+                        flag[v] = 1;
+                        candidates[u][candidates_count[u]++] = v;
+                    }
+#endif
+                }
+            }
+
+            if (iter_pair.first->second.empty()) {
+                frontiers[j] = INVALID_VERTEX_ID;
+                for (ui k = 0; k < tree[u_p].children_count_; ++k) {
+                    VertexID u_c = tree[u_p].children_[k];
+                    if (visited_query_vertex[u_c]) {
+                        TE_Candidates[u_c].erase(v_f);
+                    }
+                }
+            }
+        }
+
+        if (candidates_count[u] == 0)
+            return false;
+
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+            flag[v] = 0;
+        }
+    }
+
+    // NOVEL Reverse BCP + Refinement.
+    NTE_Candidates.resize(query_vertices_count);
+    for (auto& value : NTE_Candidates) {
+        value.resize(query_vertices_count);
+    }
+
+    std::vector<std::vector<ui>> cardinality(query_vertices_count);
+    for (ui i = 0; i < query_vertices_count; ++i) {
+        cardinality[i].resize(candidates_count[i], 1);
+    }
+
+    std::vector<ui> local_cardinality(data_vertices_count);
+    std::fill(local_cardinality.begin(), local_cardinality.end(), 0);
+
+
+    for (int i = query_vertices_count-1; i>=0; --i) {
+        VertexID u = order[i];
+        TreeNode &u_node = tree[u];
+
+        ui flag_num = 0;
+        ui updated_flag_count = 0;
+
+        // NEW: count frequency of v as adjacent to candidates of u_b and u_p during NTE filtering
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+
+            if (v == INVALID_VERTEX_ID)
+                continue;
+
+            if (flag[v] == flag_num) {
+                flag[v] += 1;
+                updated_flag[updated_flag_count++] = v;
+            }
+        }
+
+        ui u_label = query_graph->getVertexLabel(u);
+        ui u_degree = query_graph->getVertexDegree(u);
+#if OPTIMIZED_LABELED_GRAPH == 1
+        const std::unordered_map<LabelID, ui> *u_nlf = query_graph->getVertexNLF(u);
+#endif
+        // BCP on u_b and intersect with NTE_Candidates.
+        for (ui l = 0; l < u_node.bn_count_; ++l) {
+            // NEW: increment u_b count during NTE filtering
+            flag_num += 1;
+
+            VertexID u_p = u_node.bn_[l];
+            VertexID *frontiers = candidates[u_p];
+            ui frontiers_count = candidates_count[u_p];
+
+            for (ui j = 0; j < frontiers_count; ++j) {
+                VertexID v_f = frontiers[j];
+
+                if (v_f == INVALID_VERTEX_ID)
+                    continue;
+
+                ui nbrs_cnt;
+#if OPTIMIZED_LABELED_GRAPH == 1
+                // NEW: NLF with Label Pair Index
+                const VertexID *nbrs = data_graph->getNeighborsByLabel(v_f, u_label, nbrs_cnt);
+#else
+                const VertexID *nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+#endif
+
+                auto iter_pair = NTE_Candidates[u][u_p].emplace(v_f, std::vector<VertexID>());
+                for (ui k = 0; k < nbrs_cnt; ++k) {
+                    VertexID v = nbrs[k];
+
+                    if (flag[v] >= flag_num) {
+
+                        // NEW: Skip NLF check
+                        // NEW: update frequency of v on the fly
+                        iter_pair.first->second.push_back(v);
+                        if (flag[v] == flag_num)
+                            flag[v] += 1;
+                        continue;
+                    }
+                }
+
+                if (iter_pair.first->second.empty()) {
+                    frontiers[j] = INVALID_VERTEX_ID;
+                    for (ui k = 0; k < tree[u_p].children_count_; ++k) {
+                        VertexID u_c = tree[u_p].children_[k];
+                        TE_Candidates[u_c].erase(v_f);
+                    }
+                }
+            }
+        }
+
+        // NEW: increment u_p count during NTE filtering
+        flag_num += 1;
+
+        // NEW: Get the cardinality of the candidates of u.
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+
+            if (v != INVALID_VERTEX_ID && flag[v] == flag_num) {
+                local_cardinality[v] = cardinality[u][j];
+            }
+            else {
+                candidates[u][j] = INVALID_VERTEX_ID;
+                cardinality[u][j] = 0;
+            }
+        }
+
+        if (i > 0) {
+            VertexID u_p = u_node.parent_;
+            VertexID *frontiers = candidates[u_p];
+            ui frontiers_count = candidates_count[u_p];
+
+            // NEW: intersect with TE_Candidates during NTE filtering
+            for (ui j=0; j<frontiers_count; ++j) {
+                VertexID v_f = frontiers[j];
+
+                if (v_f == INVALID_VERTEX_ID) {
+                    cardinality[u_p][j] = 0;
+                    continue;
+                }
+
+                ui temp_score = 0;
+                for (auto iter = TE_Candidates[u][v_f].begin(); iter != TE_Candidates[u][v_f].end();) {
+                    VertexID v = *iter;
+                    temp_score += local_cardinality[v];
+                    if (local_cardinality[v] == 0) {
+                        // remove v from u_p's TE_candidates
+                        iter = TE_Candidates[u][v_f].erase(iter);
+                        // NEW: Skip remove v from C(u)
+                        /* for (ui k = 0; k < u_node.children_count; ++k) {
+                            VertexID u_c = u_node.children[k];
+                            TE_Candidates[u_c].erase(v);
+                        }
+
+                        for (ui k = 0; k < u_node.fn_count; ++k) {
+                            VertexID u_c = u_node.fn[k];
+                            NTE_Candidates[u_c][u].erase(v);
+                        } */
+                    }
+                    else {
+                        ++iter;
+                        // NEW: update frequency of v on the fly
+                        if (flag[v] == flag_num) {
+                            flag[v] += 1;
+                        }
+                    }
+                }
+
+                cardinality[u_p][j] *= temp_score;
+            }
+            // NEW: Clear updated flag and invalidate v from C(u) during NTE filtering
+            flag_num += 1;
+        }
+
+        for (ui j = 0; j < updated_flag_count; ++j) {
+            ui v = updated_flag[j];
+            flag[v] = 0;
+            local_cardinality[v] = 0;
+        }
+    }
+
+    // compact and sort candidates.
+    compactSortCandidates(candidates, candidates_count, query_vertices_count);
+
+    for (ui i = 0; i < query_vertices_count; ++i) {
+        if (candidates_count[i] == 0) {
+            printf("early termination\n");
+            return false;
+        }
+    }
+
+    for (ui i = 1; i < query_vertices_count; ++i) {
+        VertexID u = order[i];
+        TreeNode& u_node = tree[u];
+
+        // Clear TE_Candidates.
+        {
+            VertexID u_p = u_node.parent_;
+            auto iter = TE_Candidates[u].begin();
+            while (iter != TE_Candidates[u].end()) {
+                VertexID v_f = iter->first;
+                if (!std::binary_search(candidates[u_p], candidates[u_p] + candidates_count[u_p], v_f)) {
+                    iter = TE_Candidates[u].erase(iter);
+                }
+                else {
+                    std::sort(iter->second.begin(), iter->second.end());
+                    iter++;
+                }
+            }
+        }
+
+        // Clear NTE_Candidates.
+        {
+            for (ui j = 0; j < u_node.bn_count_; ++j) {
+                VertexID u_p = u_node.bn_[j];
+                auto iter = NTE_Candidates[u][u_p].end();
+                while (iter != NTE_Candidates[u][u_p].end()) {
+                    VertexID v_f = iter->first;
+                    if (!std::binary_search(candidates[u_p], candidates[u_p] + candidates_count[u_p], v_f)) {
+                        iter = NTE_Candidates[u][u_p].erase(iter);
+                    }
+                    else {
+                        std::sort(iter->second.begin(), iter->second.end());
+                        iter++;
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+// l2Match w/o LPF
+bool
+FilterVertices::l2MatchFilterA(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count,
+                           ui *&order, TreeNode *&tree,  std::vector<std::unordered_map<VertexID, std::vector<VertexID >>> &TE_Candidates,
+                           std::vector<std::vector<std::unordered_map<VertexID, std::vector<VertexID>>>> &NTE_Candidates) {
+    GenerateFilteringPlan::generateCECIFilterPlan(data_graph, query_graph, tree, order);
+    ui query_vertices_count = query_graph->getVerticesCount();
+    ui data_vertices_count = data_graph->getVerticesCount();
+    
+
+    allocateBuffer(data_graph, query_graph, candidates, candidates_count);
+
+    
+    // Find the pivots.
+    VertexID root = order[0];
+    //computeCandidateWithNLF_LPF(data_graph, query_graph, root, candidates_count[root], candidates[root]);
+    computeCandidateWithNLF(data_graph, query_graph, root, candidates_count[root], candidates[root]);
+
+    if (candidates_count[root] == 0)
+        return false;
+
+    // TE_Candidates construction and filtering.
+    std::vector<ui> updated_flag(data_vertices_count);
+    std::vector<ui> flag(data_vertices_count);
+    std::fill(flag.begin(), flag.end(), 0);
+    std::vector<bool> visited_query_vertex(query_vertices_count);
+    std::fill(visited_query_vertex.begin(), visited_query_vertex.end(), false);
+
+    visited_query_vertex[root] = true;
+
+    TE_Candidates.resize(query_vertices_count);
+
+    for (ui i = 1; i < query_vertices_count; ++i) {
+        VertexID u = order[i];
+        TreeNode& u_node = tree[u];
+        VertexID u_p = tree[u].parent_;
+
+        ui u_label = query_graph->getVertexLabel(u);
+        ui u_degree = query_graph->getVertexDegree(u);
+#if OPTIMIZED_LABELED_GRAPH == 1
+        const std::unordered_map<LabelID, ui>* u_nlf = query_graph->getVertexNLF(u);
+#endif
+        candidates_count[u] = 0;
+
+        visited_query_vertex[u] = true;
+        VertexID* frontiers = candidates[u_p];
+        ui frontiers_count = candidates_count[u_p];
+
+        for (ui j = 0; j < frontiers_count; ++j) {
+            VertexID v_f = frontiers[j];
+
+            if (v_f == INVALID_VERTEX_ID)
+                continue;
+
+            ui nbrs_cnt;
+            const VertexID* nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+
+            auto iter_pair = TE_Candidates[u].emplace(v_f, std::vector<VertexID>());
+            for (ui k = 0; k < nbrs_cnt; ++k) {
+                VertexID v = nbrs[k];
+
+                if (data_graph->getVertexDegree(v) >= u_degree && data_graph->getVertexLabel(v) == u_label) {
+
+                    // NLF check
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+                    const std::unordered_map<LabelID, ui>* v_nlf = data_graph->getVertexNLF(v);
+
+                    if (v_nlf->size() >= u_nlf->size()) {
+                        bool is_valid = true;
+
+                        for (auto element : *u_nlf) {
+                            auto iter = v_nlf->find(element.first);
+                            if (iter == v_nlf->end() || iter->second < element.second) {
+                                is_valid = false;
+                                break;
+                            }
+                        }
+
+                        if (is_valid) {
+                            iter_pair.first->second.push_back(v);
+                            if (flag[v] == 0) {
+                                flag[v] = 1;
+                                candidates[u][candidates_count[u]++] = v;
+                            }
+                        }
+                    }
+#else
+                    iter_pair.first->second.push_back(v);
+                    if (flag[v] == 0) {
+                        flag[v] = 1;
+                        candidates[u][candidates_count[u]++] = v;
+                    }
+#endif
+                }
+            }
+
+            if (iter_pair.first->second.empty()) {
+                frontiers[j] = INVALID_VERTEX_ID;
+                for (ui k = 0; k < tree[u_p].children_count_; ++k) {
+                    VertexID u_c = tree[u_p].children_[k];
+                    if (visited_query_vertex[u_c]) {
+                        TE_Candidates[u_c].erase(v_f);
+                    }
+                }
+            }
+        }
+
+        if (candidates_count[u] == 0)
+            return false;
+
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+            flag[v] = 0;
+        }
+    }
+
+    // NOVEL Reverse BCP + Refinement.
+    NTE_Candidates.resize(query_vertices_count);
+    for (auto& value : NTE_Candidates) {
+        value.resize(query_vertices_count);
+    }
+
+    std::vector<std::vector<ui>> cardinality(query_vertices_count);
+    for (ui i = 0; i < query_vertices_count; ++i) {
+        cardinality[i].resize(candidates_count[i], 1);
+    }
+
+    std::vector<ui> local_cardinality(data_vertices_count);
+    std::fill(local_cardinality.begin(), local_cardinality.end(), 0);
+
+
+    for (int i = query_vertices_count-1; i>=0; --i) {
+        VertexID u = order[i];
+        TreeNode &u_node = tree[u];
+
+        ui flag_num = 0;
+        ui updated_flag_count = 0;
+
+        // NEW: count frequency of v as adjacent to candidates of u_b and u_p during NTE filtering
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+
+            if (v == INVALID_VERTEX_ID)
+                continue;
+
+            if (flag[v] == flag_num) {
+                flag[v] += 1;
+                updated_flag[updated_flag_count++] = v;
+            }
+        }
+
+        ui u_label = query_graph->getVertexLabel(u);
+        ui u_degree = query_graph->getVertexDegree(u);
+#if OPTIMIZED_LABELED_GRAPH == 1
+        const std::unordered_map<LabelID, ui> *u_nlf = query_graph->getVertexNLF(u);
+#endif
+        // BCP on u_b and intersect with NTE_Candidates.
+        for (ui l = 0; l < u_node.bn_count_; ++l) {
+            // NEW: increment u_b count during NTE filtering
+            flag_num += 1;
+
+            VertexID u_p = u_node.bn_[l];
+            VertexID *frontiers = candidates[u_p];
+            ui frontiers_count = candidates_count[u_p];
+
+            for (ui j = 0; j < frontiers_count; ++j) {
+                VertexID v_f = frontiers[j];
+
+                if (v_f == INVALID_VERTEX_ID)
+                    continue;
+
+                ui nbrs_cnt;
+                const VertexID *nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+
+                auto iter_pair = NTE_Candidates[u][u_p].emplace(v_f, std::vector<VertexID>());
+                for (ui k = 0; k < nbrs_cnt; ++k) {
+                    VertexID v = nbrs[k];
+
+                    if (flag[v] >= flag_num) {
+
+                        // NEW: Skip NLF check
+                        // NEW: update frequency of v on the fly
+                        iter_pair.first->second.push_back(v);
+                        if (flag[v] == flag_num)
+                            flag[v] += 1;
+                        continue;
+                    }
+                }
+
+                if (iter_pair.first->second.empty()) {
+                    frontiers[j] = INVALID_VERTEX_ID;
+                    for (ui k = 0; k < tree[u_p].children_count_; ++k) {
+                        VertexID u_c = tree[u_p].children_[k];
+                        TE_Candidates[u_c].erase(v_f);
+                    }
+                }
+            }
+        }
+
+        // NEW: increment u_p count during NTE filtering
+        flag_num += 1;
+
+        // NEW: Get the cardinality of the candidates of u.
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+
+            if (v != INVALID_VERTEX_ID && flag[v] == flag_num) {
+                local_cardinality[v] = cardinality[u][j];
+            }
+            else {
+                candidates[u][j] = INVALID_VERTEX_ID;
+                cardinality[u][j] = 0;
+            }
+        }
+
+        if (i > 0) {
+            VertexID u_p = u_node.parent_;
+            VertexID *frontiers = candidates[u_p];
+            ui frontiers_count = candidates_count[u_p];
+
+            // NEW: intersect with TE_Candidates during NTE filtering
+            for (ui j=0; j<frontiers_count; ++j) {
+                VertexID v_f = frontiers[j];
+
+                if (v_f == INVALID_VERTEX_ID) {
+                    cardinality[u_p][j] = 0;
+                    continue;
+                }
+
+                ui temp_score = 0;
+                for (auto iter = TE_Candidates[u][v_f].begin(); iter != TE_Candidates[u][v_f].end();) {
+                    VertexID v = *iter;
+                    temp_score += local_cardinality[v];
+                    if (local_cardinality[v] == 0) {
+                        // remove v from u_p's TE_candidates
+                        iter = TE_Candidates[u][v_f].erase(iter);
+                        // NEW: Skip remove v from C(u)
+                        /* for (ui k = 0; k < u_node.children_count; ++k) {
+                            VertexID u_c = u_node.children[k];
+                            TE_Candidates[u_c].erase(v);
+                        }
+
+                        for (ui k = 0; k < u_node.fn_count; ++k) {
+                            VertexID u_c = u_node.fn[k];
+                            NTE_Candidates[u_c][u].erase(v);
+                        } */
+                    }
+                    else {
+                        ++iter;
+                        // NEW: update frequency of v on the fly
+                        if (flag[v] == flag_num) {
+                            flag[v] += 1;
+                        }
+                    }
+                }
+
+                cardinality[u_p][j] *= temp_score;
+            }
+            // NEW: Clear updated flag and invalidate v from C(u) during NTE filtering
+            flag_num += 1;
+        }
+
+        for (ui j = 0; j < updated_flag_count; ++j) {
+            ui v = updated_flag[j];
+            flag[v] = 0;
+            local_cardinality[v] = 0;
+        }
+    }
+
+    // compact and sort candidates.
+    compactSortCandidates(candidates, candidates_count, query_vertices_count);
+
+    for (ui i = 0; i < query_vertices_count; ++i) {
+        if (candidates_count[i] == 0) {
+            printf("early termination\n");
+            return false;
+        }
+    }
+
+    for (ui i = 1; i < query_vertices_count; ++i) {
+        VertexID u = order[i];
+        TreeNode& u_node = tree[u];
+
+        // Clear TE_Candidates.
+        {
+            VertexID u_p = u_node.parent_;
+            auto iter = TE_Candidates[u].begin();
+            while (iter != TE_Candidates[u].end()) {
+                VertexID v_f = iter->first;
+                if (!std::binary_search(candidates[u_p], candidates[u_p] + candidates_count[u_p], v_f)) {
+                    iter = TE_Candidates[u].erase(iter);
+                }
+                else {
+                    std::sort(iter->second.begin(), iter->second.end());
+                    iter++;
+                }
+            }
+        }
+
+        // Clear NTE_Candidates.
+        {
+            for (ui j = 0; j < u_node.bn_count_; ++j) {
+                VertexID u_p = u_node.bn_[j];
+                auto iter = NTE_Candidates[u][u_p].end();
+                while (iter != NTE_Candidates[u][u_p].end()) {
+                    VertexID v_f = iter->first;
+                    if (!std::binary_search(candidates[u_p], candidates[u_p] + candidates_count[u_p], v_f)) {
+                        iter = NTE_Candidates[u][u_p].erase(iter);
+                    }
+                    else {
+                        std::sort(iter->second.begin(), iter->second.end());
+                        iter++;
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
+}
+// l2Match w/o BCPRefine
+bool
+FilterVertices::l2MatchFilterB(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count,
+                           ui *&order, TreeNode *&tree,  std::vector<std::unordered_map<VertexID, std::vector<VertexID >>> &TE_Candidates,
+                           std::vector<std::vector<std::unordered_map<VertexID, std::vector<VertexID>>>> &NTE_Candidates) {
+    GenerateFilteringPlan::generateL2MatchFilterPlan(data_graph, query_graph, tree, order);
+    
+    allocateBuffer(data_graph, query_graph, candidates, candidates_count);
+
+    ui query_vertices_count = query_graph->getVerticesCount();
+    ui data_vertices_count = data_graph->getVerticesCount();
+    // Find the pivots.
+    VertexID root = order[0];
+    computeCandidateWithNLF_LPF(data_graph, query_graph, root, candidates_count[root], candidates[root]);
 
     if (candidates_count[root] == 0)
         return false;
@@ -588,49 +1647,347 @@ FilterVertices::CECIFilter(const Graph *data_graph, const Graph *query_graph, ui
         }
     }
 
-//    for (ui i = 0; i < query_vertices_count; ++i) {
-//        VertexID u = i;
-//        std::cout << u << ':';
-//        for (ui j = 0; j < candidates_count[u]; ++j) {
-//            std::cout << candidates[u][j] << ' ';
-//        }
-//        std::cout << std::endl;
-//    }
-//
-//    for (ui i = 1; i < query_vertices_count; ++i) {
-//        VertexID u = order[i];
-//        // TE_Candidates
-//        std::cout << "TE_Candidates: " << u << ',' << tree[u].parent_ << std::endl;
-//        for (auto iter = TE_Candidates[u].begin(); iter != TE_Candidates[u].end(); ++iter) {
-//            std::cout << iter->first << ": ";
-//            for (auto v : iter->second) {
-//                std::cout << v << ' ';
-//                if (!data_graph->checkEdgeExistence(iter->first, v)) {
-//                    std::cout << "Edge does not exist" << std::endl;
-//                }
-//            }
-//            std::cout << std::endl;
-//        }
-//        std::cout << "-----" << std::endl;
-//        for (ui j = 0; j < tree[u].bn_count_; ++j) {
-//            VertexID u_bn = tree[u].bn_[j];
-//            std::cout << "NTE_Candidates: " << u << ',' << u_bn << std::endl;
-//            for (auto iter = NTE_Candidates[u][u_bn].begin(); iter != NTE_Candidates[u][u_bn].end(); ++iter) {
-//                std::cout << iter->first << ": ";
-//                for (auto v : iter->second) {
-//                    std::cout << v << ' ';
-//                    if (!data_graph->checkEdgeExistence(iter->first, v)) {
-//                        std::cout << "Edge does not exist" << std::endl;
-//                    }
-//                }
-//                std::cout << std::endl;
-//            }
-//            std::cout << "-----" << std::endl;
-//        }
-//    }
+    return true;
+}
+
+bool
+FilterVertices::l2MatchFilterNew(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count,
+                           ui *&order, TreeNode *&tree) {
+    GenerateFilteringPlan::generateL2MatchFilterPlan(data_graph, query_graph, tree, order);
+
+    allocateBuffer(data_graph, query_graph, candidates, candidates_count);
+
+    ui query_vertices_count = query_graph->getVerticesCount();
+    ui data_vertices_count = data_graph->getVerticesCount();
+    // Find the pivots.
+    VertexID root = order[0];
+    computeCandidateWithNLF_LPF(data_graph, query_graph, root, candidates_count[root], candidates[root]);
+
+    if (candidates_count[root] == 0)
+        return false;
+
+    // TE_Candidates construction and filtering.
+    ui* updated_flag = new ui[data_vertices_count];
+    ui* flag = new ui[data_vertices_count];
+    std::fill(flag, flag + data_vertices_count, 0);
+    std::vector<bool> visited_query_vertex(query_vertices_count);
+    std::fill(visited_query_vertex.begin(), visited_query_vertex.end(), false);
+
+    visited_query_vertex[root] = true;
+
+    for (ui i = 1; i < query_vertices_count; ++i) {
+        VertexID u = order[i];
+        TreeNode& u_node = tree[u];
+        VertexID u_p = tree[u].parent_;
+
+        ui u_label = query_graph->getVertexLabel(u);
+        ui u_degree = query_graph->getVertexDegree(u);
+#if OPTIMIZED_LABELED_GRAPH == 1
+        const std::unordered_map<LabelID, ui>* u_nlf = query_graph->getVertexNLF(u);
+#endif
+        candidates_count[u] = 0;
+        visited_query_vertex[u] = true;
+
+        ui count = 0;
+        ui updated_flag_count = 0;
+        for (ui j=0; j<u_node.bn_count_; ++j) {
+            VertexID u_b = u_node.bn_[j];
+
+            generateCandidates(data_graph, query_graph, candidates, candidates_count, flag, updated_flag, count,
+                                updated_flag_count, u, u_label, u_degree, u_b);
+
+            count += 1;
+        }
+
+        generateCandidates(data_graph, query_graph, candidates, candidates_count, flag, updated_flag, count,
+                            updated_flag_count, u, u_label, u_degree, u_p);
+        count += 1;
+
+        for (ui j = 0; j < updated_flag_count; ++j) {
+            VertexID v = updated_flag[j];
+            if (flag[v] == count) {
+                // NLF filter.
+#if OPTIMIZED_LABELED_GRAPH == 1
+                const std::unordered_map<LabelID, ui>* data_vertex_nlf = data_graph->getVertexNLF(v);
+
+                if (data_vertex_nlf->size() >= u_nlf->size()) {
+                    bool is_valid = true;
+
+                    for (auto element : *u_nlf) {
+                        auto iter = data_vertex_nlf->find(element.first);
+                        if (iter == data_vertex_nlf->end() || iter->second < element.second) {
+                            is_valid = false;
+                            break;
+                        }
+                    }
+
+                    if (is_valid) {
+                        candidates[u][candidates_count[u]++] = v;
+                    }
+                }
+#else
+                candidates[u][candidates_count[u]++] = v;
+#endif
+            }
+            flag[v] = 0;
+        }
+    }
+
+
+    std::vector<std::vector<ui>> cardinality(query_vertices_count);
+    for (ui i = 0; i < query_vertices_count; ++i) {
+        cardinality[i].resize(candidates_count[i], 1);
+    }
+
+    std::vector<ui> local_cardinality(data_vertices_count);
+    std::fill(local_cardinality.begin(), local_cardinality.end(), 0);
+
+
+    for (int i = query_vertices_count-1; i>=0; --i) {
+        VertexID u = order[i];
+        TreeNode &u_node = tree[u];
+
+        ui count = 1; // initial count = 1 for existing candidates
+        ui updated_flag_count = 0;
+
+        // NEW: count frequency of v as adjacent to candidates of u_b and u_p during NTE filtering
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+
+            if (v == INVALID_VERTEX_ID)
+                continue;
+
+            flag[v] = 1;
+            updated_flag[updated_flag_count++] = v;
+        }
+
+        ui u_label = query_graph->getVertexLabel(u);
+        ui u_degree = query_graph->getVertexDegree(u);
+#if OPTIMIZED_LABELED_GRAPH == 1
+        const std::unordered_map<LabelID, ui> *u_nlf = query_graph->getVertexNLF(u);
+#endif
+        // BCP on u_b and intersect with NTE_Candidates.
+        for (ui l = 0; l < u_node.bn_count_; ++l) {
+            // NEW: increment u_b count during NTE filtering
+
+            VertexID u_b = u_node.bn_[l];
+            pruneCandidates(data_graph, query_graph, candidates, candidates_count, flag, count,
+                            u, u_label, u_degree, u_b);
+
+            count += 1;
+        }
+
+        // NEW: Get the cardinality of the candidates of u.
+        for (ui j = 0; j < candidates_count[u]; ++j) {
+            VertexID v = candidates[u][j];
+
+            if (v != INVALID_VERTEX_ID && flag[v] == count) {
+                local_cardinality[v] = cardinality[u][j];
+            }
+            else {
+                candidates[u][j] = INVALID_VERTEX_ID;
+                cardinality[u][j] = 0;
+            }
+        }
+
+        if (i > 0) {
+            VertexID u_p = u_node.parent_;
+            VertexID *frontiers = candidates[u_p];
+            ui frontiers_count = candidates_count[u_p];
+
+            // NEW: intersect with TE_Candidates during NTE filtering
+            for (ui j=0; j<frontiers_count; ++j) {
+                VertexID v_f = frontiers[j];
+
+                if (v_f == INVALID_VERTEX_ID) {
+                    cardinality[u_p][j] = 0;
+                    continue;
+                }
+
+                ui nbrs_cnt;
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+                // NOVEL Label Pair Filtering with LPI
+                const VertexID* nbrs = data_graph->getNeighborsByLabel(v_f, u_label, nbrs_cnt);
+#else
+                const VertexID* nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+#endif
+
+                ui temp_score = 0;
+                for (ui k=0; k<nbrs_cnt; ++k) {
+                    VertexID v = nbrs[k];
+                    if (flag[v] < count)
+                        continue;
+
+                    temp_score += local_cardinality[v];
+                    if (local_cardinality[v] == 0) {
+                        // remove v
+                        flag[v] = 0;
+                    }
+                    else {
+                        // NEW: update frequency of v on the fly
+                        if (flag[v] == count) {
+                            flag[v] += 1;
+                        }
+                    }
+                }
+
+                cardinality[u_p][j] *= temp_score;
+            }
+            // NEW: Clear updated flag and invalidate v from C(u) during NTE filtering
+            count += 1;
+        }
+
+        for (ui i = 0; i < candidates_count[u]; ++i) {
+            ui v = candidates[u][i];
+            if (v == INVALID_VERTEX_ID)
+                continue;
+
+            if (flag[v] != count) {
+                candidates[u][i] = INVALID_VERTEX_ID;
+            }
+        }
+
+        for (ui j = 0; j < updated_flag_count; ++j) {
+            ui v = updated_flag[j];
+            flag[v] = 0;
+            local_cardinality[v] = 0;
+        }
+
+    }
+
+    // compact and sort candidates.
+    compactSortCandidates(candidates, candidates_count, query_vertices_count);
+
+    for (ui i = 0; i < query_vertices_count; ++i) {
+        if (candidates_count[i] == 0) {
+            printf("early termination\n");
+            return false;
+        }
+    }
+
+
+    delete[] updated_flag;
+    delete[] flag;
 
     return true;
 }
+
+
+void
+FilterVertices::generateCandidates(const Graph *data_graph, const Graph *query_graph, ui **candidates, ui *candidates_count, ui *flag, ui* updated_flag, const ui count,
+                                    ui& updated_flag_count, const VertexID u, const LabelID u_label, const ui u_degree, const VertexID u_b)
+{
+    VertexID* frontiers = candidates[u_b];
+    ui frontiers_count = candidates_count[u_b];
+
+    for (ui k=0; k<frontiers_count; ++k) {
+        VertexID v_f = frontiers[k];
+        if (v_f == INVALID_VERTEX_ID)
+            continue;
+
+        ui nbrs_cnt;
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+        // NOVEL Label Pair Filtering with LPI
+        const VertexID* nbrs = data_graph->getNeighborsByLabel(v_f, u_label, nbrs_cnt);
+#else
+        const VertexID* nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+#endif
+
+        bool valid_v_f = false;
+
+        for (ui l=0; l<nbrs_cnt; ++l) {
+            VertexID v = nbrs[l];
+
+            if (flag[v] < count)
+                continue;
+
+            valid_v_f = true;
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+    // NOVEL Label Pair Filtering with LPI
+            if (flag[v] == count && data_graph->getVertexDegree(v) >= u_degree) {
+                flag[v] += 1;
+
+                if (count == 0) {
+                    updated_flag[updated_flag_count++] = v;
+                }
+            }
+#else
+            if (flag[v] == count && data_graph->getVertexLabel(v) == u_label && data_graph->getVertexDegree(v) >= u_degree) {
+                flag[v] += 1;
+                
+                if (count == 0) {
+                    updated_flag[updated_flag_count++] = v;
+                }
+            }
+#endif
+            
+        }
+
+        if (!valid_v_f) {
+            frontiers[k] = INVALID_VERTEX_ID;
+        }
+    }
+
+    return;
+}
+
+void
+FilterVertices::pruneCandidates(const Graph *data_graph, const Graph *query_graph, ui **candidates, ui *candidates_count, ui *flag, const ui count,
+                                    const VertexID u, const LabelID u_label, const ui u_degree, const VertexID u_b)
+{
+    VertexID* frontiers = candidates[u_b];
+    ui frontiers_count = candidates_count[u_b];
+
+    for (ui i=0; i<frontiers_count; ++i) {
+        VertexID v_f = frontiers[i];
+        if (v_f == INVALID_VERTEX_ID)
+            continue;
+
+        ui nbrs_cnt;
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+        // NOVEL Label Pair Filtering with LPI
+        const VertexID* nbrs = data_graph->getNeighborsByLabel(v_f, u_label, nbrs_cnt);
+#else
+        const VertexID* nbrs = data_graph->getVertexNeighbors(v_f, nbrs_cnt);
+#endif
+
+        bool valid_v_f = false;
+
+        for (ui j=0; j<nbrs_cnt; ++j) {
+            VertexID v = nbrs[j];
+
+            if (flag[v] < count)
+                continue;
+
+            valid_v_f = true;
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+    // NOVEL Label Pair Filtering with LPI
+            if (flag[v] == count && data_graph->getVertexDegree(v) >= u_degree) {
+                // NEW: Skip NLF check
+                // NEW: update frequency of v on the fly
+                flag[v] += 1;
+            }
+#else
+            if (flag[v] == count && data_graph->getVertexLabel(v) == u_label && data_graph->getVertexDegree(v) >= u_degree) {
+                flag[v] += 1;
+            }
+#endif
+            
+        }
+
+        if (!valid_v_f) {
+            frontiers[i] = INVALID_VERTEX_ID;
+        }
+    }
+
+    return;
+}
+
 
 void FilterVertices::allocateBuffer(const Graph *data_graph, const Graph *query_graph, ui **&candidates,
                                     ui *&candidates_count) {
@@ -656,6 +2013,7 @@ FilterVertices::verifyExactTwigIso(const Graph *data_graph, const Graph *query_g
     ui left_partition_size;
     ui right_partition_size;
     const VertexID* query_vertex_neighbors = query_graph->getVertexNeighbors(query_vertex, left_partition_size);
+    
     const VertexID* data_vertex_neighbors = data_graph->getVertexNeighbors(data_vertex, right_partition_size);
 
     ui edge_count = 0;
@@ -701,6 +2059,24 @@ void FilterVertices::compactCandidates(ui **&candidates, ui *&candidates_count, 
         candidates_count[query_vertex] = next_position;
     }
 }
+
+void FilterVertices::compactSortCandidates(ui **&candidates, ui *&candidates_count, ui query_vertex_num) {
+    for (ui i = 0; i < query_vertex_num; ++i) {
+        VertexID query_vertex = i;
+        ui next_position = 0;
+        for (ui j = 0; j < candidates_count[query_vertex]; ++j) {
+            VertexID data_vertex = candidates[query_vertex][j];
+
+            if (data_vertex != INVALID_VERTEX_ID) {
+                candidates[query_vertex][next_position++] = data_vertex;
+            }
+        }
+
+        candidates_count[query_vertex] = next_position;
+        std::sort(candidates[query_vertex], candidates[query_vertex] + candidates_count[query_vertex]);
+    }
+}
+
 
 bool FilterVertices::isCandidateSetValid(ui **&candidates, ui *&candidates_count, ui query_vertex_num) {
     for (ui i = 0; i < query_vertex_num; ++i) {
@@ -758,6 +2134,84 @@ FilterVertices::computeCandidateWithNLF(const Graph *data_graph, const Graph *qu
 
 }
 
+// NOVEL l2Match
+void
+FilterVertices::computeCandidateWithNLF_LPF(const Graph *data_graph, const Graph *query_graph, VertexID query_vertex,
+                                               ui &count, ui *buffer) {
+    LabelID label = query_graph->getVertexLabel(query_vertex);
+    ui degree;
+    const ui* adjs = query_graph->getVertexNeighbors(query_vertex, degree);
+
+    LabelID min_label = 1;
+    ui min_lp_freq = UINT_MAX;
+    for (ui i=0; i<degree; ++i) {
+        LabelID neighbor_label = query_graph->getVertexLabel(adjs[i]);
+        ui freq = data_graph->getLabelPairFrequency(label, neighbor_label);
+        if (freq < min_lp_freq) {
+            min_lp_freq = freq;
+            min_label = neighbor_label;
+        }
+    }
+    
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+    const std::unordered_map<LabelID, ui>* query_vertex_nlf = query_graph->getVertexNLF(query_vertex);
+#endif
+    auto it = data_graph->getLabelPairIterator(label, min_label);
+    count = 0;
+    for (ui i : it->second) {
+        ui data_vertex = i;
+        if (data_graph->getVertexDegree(data_vertex) >= degree) {
+
+            // NFL check
+#if OPTIMIZED_LABELED_GRAPH == 1
+            const std::unordered_map<LabelID, ui>* data_vertex_nlf = data_graph->getVertexNLF(data_vertex);
+
+            if (data_vertex_nlf->size() >= query_vertex_nlf->size()) {
+                bool is_valid = true;
+
+                for (auto element : *query_vertex_nlf) {
+                    auto iter = data_vertex_nlf->find(element.first);
+                    if (iter == data_vertex_nlf->end() || iter->second < element.second) {
+                        is_valid = false;
+                        break;
+                    }
+                }
+
+                if (is_valid) {
+                    if (buffer != NULL) {
+                        buffer[count] = data_vertex;
+                    }
+                    count += 1;
+                }
+            }
+#else
+            if (buffer != NULL) {
+                buffer[count] = data_vertex;
+            }
+            count += 1;
+#endif
+        }
+    }
+
+}
+
+bool
+FilterVertices::LPFilter(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count) {
+    allocateBuffer(data_graph, query_graph, candidates, candidates_count);
+
+    for (ui i = 0; i < query_graph->getVerticesCount(); ++i) {
+        VertexID query_vertex = i;
+        computeCandidateWithNLF_LPF(data_graph, query_graph, query_vertex, candidates_count[query_vertex], candidates[query_vertex]);
+
+        if (candidates_count[query_vertex] == 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void FilterVertices::computeCandidateWithLDF(const Graph *data_graph, const Graph *query_graph, VertexID query_vertex,
                                              ui &count, ui *buffer) {
     LabelID label = query_graph->getVertexLabel(query_vertex);
@@ -803,8 +2257,24 @@ void FilterVertices::generateCandidates(const Graph *data_graph, const Graph *qu
             if (v == INVALID_VERTEX_ID)
                 continue;
             ui v_nbrs_count;
-            const VertexID* v_nbrs = data_graph->getVertexNeighbors(v, v_nbrs_count);
 
+#ifdef LPF
+            const VertexID* v_nbrs = data_graph->getNeighborsByLabel(v, query_vertex_label, v_nbrs_count);
+            for (ui k = 0; k < v_nbrs_count; ++k) {
+                VertexID v_nbr = v_nbrs[k];
+                LabelID v_nbr_label = data_graph->getVertexLabel(v_nbr);
+                ui v_nbr_degree = data_graph->getVertexDegree(v_nbr);
+
+                if (flag[v_nbr] == count && v_nbr_degree >= query_vertex_degree) {
+                    flag[v_nbr] += 1;
+
+                    if (count == 0) {
+                        updated_flag[updated_flag_count++] = v_nbr;
+                    }
+                }
+            }
+#else
+            const VertexID* v_nbrs = data_graph->getVertexNeighbors(v, v_nbrs_count);
             for (ui k = 0; k < v_nbrs_count; ++k) {
                 VertexID v_nbr = v_nbrs[k];
                 LabelID v_nbr_label = data_graph->getVertexLabel(v_nbr);
@@ -818,6 +2288,7 @@ void FilterVertices::generateCandidates(const Graph *data_graph, const Graph *qu
                     }
                 }
             }
+#endif
         }
 
         count += 1;
@@ -874,6 +2345,24 @@ void FilterVertices::pruneCandidates(const Graph *data_graph, const Graph *query
             if (v == INVALID_VERTEX_ID)
                 continue;
             ui v_nbrs_count;
+
+#ifdef LPF
+            const VertexID* v_nbrs = data_graph->getNeighborsByLabel(v, query_vertex_label, v_nbrs_count);
+
+            for (ui k = 0; k < v_nbrs_count; ++k) {
+                VertexID v_nbr = v_nbrs[k];
+                LabelID v_nbr_label = data_graph->getVertexLabel(v_nbr);
+                ui v_nbr_degree = data_graph->getVertexDegree(v_nbr);
+
+                if (flag[v_nbr] == count && v_nbr_degree >= query_vertex_degree) {
+                    flag[v_nbr] += 1;
+
+                    if (count == 0) {
+                        updated_flag[updated_flag_count++] = v_nbr;
+                    }
+                }
+            }
+#else
             const VertexID* v_nbrs = data_graph->getVertexNeighbors(v, v_nbrs_count);
 
             for (ui k = 0; k < v_nbrs_count; ++k) {
@@ -889,6 +2378,7 @@ void FilterVertices::pruneCandidates(const Graph *data_graph, const Graph *query
                     }
                 }
             }
+#endif
         }
 
         count += 1;

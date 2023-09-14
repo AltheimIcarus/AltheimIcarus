@@ -6,6 +6,7 @@
 #include "FilterVertices.h"
 #include <queue>
 #include <utility/graphoperations.h>
+#include <algorithm>
 
 void GenerateFilteringPlan::generateTSOFilterPlan(const Graph *data_graph, const Graph *query_graph, TreeNode *&tree,
                                                    VertexID *&order) {
@@ -138,6 +139,39 @@ void GenerateFilteringPlan::generateCECIFilterPlan(const Graph *data_graph, cons
         }
     }
 }
+
+
+// l2Match
+void GenerateFilteringPlan::generateL2MatchFilterPlan(const Graph *data_graph, const Graph *query_graph, TreeNode *&tree,
+                                                   VertexID *&order) {
+    VertexID start_vertex = selectL2MatchStartVertex(data_graph, query_graph);
+    GraphOperations::bfsTraversal(query_graph, start_vertex, tree, order);
+
+    ui query_vertices_num = query_graph->getVerticesCount();
+    std::vector<ui> order_index(query_vertices_num);
+    for (ui i = 0; i < query_vertices_num; ++i) {
+        VertexID query_vertex = order[i];
+        order_index[query_vertex] = i;
+    }
+
+    for (ui i = 0; i < query_vertices_num; ++i) {
+        VertexID u = order[i];
+        tree[u].under_level_count_ = 0;
+        tree[u].bn_count_ = 0;
+        tree[u].fn_count_ = 0;
+
+        ui u_nbrs_count;
+        const VertexID* u_nbrs = query_graph->getVertexNeighbors(u, u_nbrs_count);
+        for (ui j = 0; j < u_nbrs_count; ++j) {
+            VertexID u_nbr = u_nbrs[j];
+            if (u_nbr != tree[u].parent_ && order_index[u_nbr] < order_index[u]) {
+                tree[u].bn_[tree[u].bn_count_++] = u_nbr;
+                tree[u_nbr].fn_[tree[u_nbr].fn_count_++] = u;
+            }
+        }
+    }
+}
+
 
 
 VertexID GenerateFilteringPlan::selectTSOFilterStartVertex(const Graph *data_graph, const Graph *query_graph) {
@@ -274,4 +308,182 @@ VertexID GenerateFilteringPlan::selectCECIStartVertex(const Graph *data_graph, c
     }
 
     return start_vertex;
+}
+
+
+// l2Match
+VertexID GenerateFilteringPlan::selectL2MatchStartVertex(const Graph *data_graph, const Graph *query_graph) {
+    double min_score = data_graph->getVerticesCount();
+    VertexID start_vertex = 0;
+
+    for (ui i = 0; i < query_graph->getVerticesCount(); ++i) {
+        ui degree = query_graph->getVertexDegree(i);
+        ui count = 0;
+        FilterVertices::computeCandidateWithNLF_LPF(data_graph, query_graph, i, count);
+        double cur_score = count / (double)degree;
+        if (cur_score < min_score) {
+            min_score = cur_score;
+            start_vertex = i;
+        }
+    }
+
+    return start_vertex;
+}
+
+// l2Match with Spatial Ordering
+void GenerateFilteringPlan::generateL2MatchFilterPlanB(const Graph *data_graph, const Graph *query_graph, TreeNode *&tree,
+                                                  VertexID *&order) {
+    ui query_vertices_num = query_graph->getVerticesCount();
+    VertexID start_vertex = selectL2MatchStartVertex(data_graph, query_graph);
+    ui* spatial_index_ = new ui[query_vertices_num];
+    std::vector<bool> visited_query_vertex(query_vertices_num, false);
+    std::queue<ui> q;
+    
+    q.push(start_vertex);
+    visited_query_vertex[start_vertex] = true;
+
+    tree = new TreeNode[query_vertices_num];
+    for (ui i = 0; i < query_vertices_num; ++i) {
+        tree[i].initialize(query_vertices_num);
+    }
+    order = new VertexID[query_vertices_num];
+    tree[start_vertex].level_ = 0;
+    tree[start_vertex].id_ = start_vertex;
+
+    ui si = 0;
+    spatial_index_[start_vertex] = si;
+    ui last_v = start_vertex;
+    std::vector<std::vector<ui>> similar_si_nbrs(query_vertices_num); // neighbors of similar spatial index
+    std::vector<std::vector<ui>> diff_si_nbrs(query_vertices_num); // neighbors of different spatial index
+    
+    // BFS Traversal to calculate spatial difference
+    while (!q.empty()) {
+        VertexID u = q.front();
+        q.pop();
+        // all pair of connected vertices either has:
+        //      difference of -1 (previous depth) or +1 (next depth),
+        //      or same spatial index (same level of depth)
+        
+        ui deg;
+        const ui* adjs = query_graph->getVertexNeighbors(u, deg);
+        
+        for (ui j=0; j<deg; ++j) {
+            ui v = adjs[j];
+            if (!visited_query_vertex[v]) {
+                visited_query_vertex[v] = true;
+                q.push(v);
+                tree[v].id_ = v;
+                tree[v].parent_ = u;
+                tree[v].level_ = tree[u].level_ + 1;
+                tree[u].children_[tree[u].children_count_++] = v;
+                spatial_index_[v] = spatial_index_[u] + 1;
+            }
+            else if (spatial_index_[v] == spatial_index_[u]) {
+                similar_si_nbrs[v].emplace_back(u);
+            } else {
+                diff_si_nbrs[v].emplace_back(u);
+            }
+        }
+
+        if (u == last_v) {
+            si += 1;
+            // let the last vertex in next depth = last element in the queue
+            last_v = q.back();
+        }
+    }
+
+    for (ui i=0; i<query_vertices_num; ++i) {
+        ui si = spatial_index_[i];
+        // O(|E|)
+        // sort neighbors of same spatial index
+        std::sort(similar_si_nbrs[i].begin(), similar_si_nbrs[i].end(), [&similar_si_nbrs](const ui& l, const ui& r){
+            return similar_si_nbrs[l].size() < similar_si_nbrs[r].size();
+        });
+        // sort neighbors of different spatial index
+        std::sort(diff_si_nbrs[i].begin(), diff_si_nbrs[i].end(), [&similar_si_nbrs](const ui& l, const ui& r){
+            return similar_si_nbrs[l].size() < similar_si_nbrs[r].size();
+        });
+    }
+
+    // BFS (NTE) Traversal to generate order
+    ui count = 0;
+    q.push(start_vertex);
+    std::fill(visited_query_vertex.begin(), visited_query_vertex.end(), false);
+    visited_query_vertex[start_vertex] = true;
+    std::vector<ui> deg_one_nbrs;
+
+    while (!q.empty()) {
+        VertexID u = q.front();
+        q.pop();
+        order[count++] = u;
+
+        ui deg;
+        ui nbrs_count = 0;
+        const ui* adjs = query_graph->getVertexNeighbors(u, deg);
+        
+        // prioritize neighbor with similar spatial index (same breath)
+        while (!similar_si_nbrs[u].empty()) {
+            nbrs_count += 1;
+
+            // prioritize neighbor with maximum neighbors of in same depth
+            ui v = similar_si_nbrs[u].back();
+            similar_si_nbrs[u].pop_back();
+            
+            if (!visited_query_vertex[v]) {
+                visited_query_vertex[v] = true;
+                
+                // if a neighbor is at same depth, then this neighbor is connected to u and a vertex in previous depth
+                //      thus, the degree of this neighbor must be >= 2. No checking for leaf vertex is required
+                //if (query_graph->getVertexDegree(v) == 1) {
+                //    deg_one_nbrs.push_back(v);
+                //    continue;
+                //}
+                q.push(v);
+            }
+        }
+
+        // prioritize forward neighbor in next depth with most connection within its depth
+        while (!diff_si_nbrs[u].empty()) {
+            ui v = diff_si_nbrs[u].back();
+            diff_si_nbrs[u].pop_back();
+
+            if (!visited_query_vertex[v]) {
+                visited_query_vertex[v] = true;
+                if (query_graph->getVertexDegree(v) == 1) {
+                    deg_one_nbrs.push_back(v);
+                    continue;
+                }
+                q.push(v);
+            }
+        }
+    }
+    
+    // finally, append degree one (leaf) vertex to order
+    for (ui u : deg_one_nbrs) {
+        order[count++] = u;
+    }
+
+    std::vector<ui> order_index(query_vertices_num);
+    for (ui i = 0; i < query_vertices_num; ++i) {
+        VertexID query_vertex = order[i];
+        order_index[query_vertex] = i;
+    }
+
+    // compute backward, forward neighbors and parent
+    for (ui i = 0; i < query_vertices_num; ++i) {
+        VertexID u = order[i];
+        tree[u].under_level_count_ = 0;
+        tree[u].bn_count_ = 0;
+        tree[u].fn_count_ = 0;
+
+        ui u_nbrs_count;
+        const VertexID* u_nbrs = query_graph->getVertexNeighbors(u, u_nbrs_count);
+        for (ui j = 0; j < u_nbrs_count; ++j) {
+            VertexID u_nbr = u_nbrs[j];
+            if (u_nbr != tree[u].parent_ && order_index[u_nbr] < order_index[u]) {
+                tree[u].bn_[tree[u].bn_count_++] = u_nbr;
+                tree[u_nbr].fn_[tree[u_nbr].fn_count_++] = u;
+            }
+        }
+    }
 }
