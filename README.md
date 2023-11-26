@@ -139,3 +139,59 @@ The datasets used in our paper are gathered from two sources:
 
 The file size of the datasets exceeds the upload limit of the GitHub repository. Hence, we do not include the datasets in this repository.
 
+## Overall Performance
+The average and standard deviation of query time over increasing query size $|V(Q)|$ are reported in the figures below. Notice that $|V(Q)|$ is used as the x-axis instead of the number of query edges $|E(Q)|$ as the spikes and troughs are densely compacted, which hinders viewability. The proposed algorithm, l2Match outperforms CECI by 19.22\%, CFL by 13.11\%, GQL by 45.21\%, and DPiso by 37.79\%. Performance improvement is calculated as the percentage of decrease $p=100\cdot (t^{algo}-t^{l2Match})\div t^{algo}$ where $t$ is the average query time and $algo$ represents each competing algorithm. In summary, the overall performance ranking is l2Match $>$ CFL $>$ CECI $>$ DPiso $>$ GQL.
+
+
+<figure>
+    <img src="https://github.com/AltheimIcarus/l2Match/blob/master/Result/Performance.png" width="500" alt="Avg. query time over |V(Q)|" />
+    <figcaption>Avg. query time over |V(Q)|</figcaption>
+</figure>
+
+
+<figure>
+    <img src="https://github.com/AltheimIcarus/l2Match/blob/master/Result/Performance%20(2).png" width="500" alt="Std. dev. of query time over |V(Q)|" />
+    <figcaption style="font-style: italic;">Std. dev. of query time over |V(Q)|</figcaption>
+</figure>
+
+## Performance of LPI, LPF, and BCPRefine Methods against CECI in the Filtering Step
+l2Match derives its filtering strategies from CECI algorithm. Hence, the effectiveness of LPI, LPF, and BCPRefine methods are compared to CECI's filtering performance in terms of the candidate count $\Sigma_{u\in V(Q)}|C(u)|$ and the time taken for the filtering step (filtering time) as shown in figure below. On average, l2Match has 14.39\% lesser candidate count and 39.85\% shorter filtering time than CECI. Average performance different is calculated as the percentage decrease $\overline{p}=100(\Sigma_{i=1}^{N} (x_i^{CECI}-x_i^{l2Match})\div x_i^{CECI})\div N$ where $x$ is the value of candidate count or filtering time, and $N$ is the number of easy (E) queries.
+
+
+<figure>
+    <img src="https://github.com/AltheimIcarus/l2Match/blob/master/Result/l2Match_CECI.png" width="500" alt="Avg. and standard deviation of difference in filtering time and candidate count over the number of query edges |E(Q)|" />
+    <figcaption style="font-style: italic;">Avg. and standard deviation of difference in filtering time and candidate count over the number of query edges |E(Q)|</figcaption>
+</figure>
+
+## Performance of LPI, and LPF Methods against CECI, CFL, GQL, and DPiso in the Filtering Step
+Figures attached below depicts a positive improvement on DPiso in terms of the candidate count, and two obvious positive improvements on GQL and DPiso in terms of the filtering time. The candidate count of the DPiso algorithm, which employs only Label Degree Filtering constraint, is decreased by 16.19\% on average. However, the candidate count of CECI, CFL, and GQL algorithms are barely affected. This proves that the LPF and NLF method have equivalent pruning power. On the other hands, LPI and LPF methods reduces the filtering time by 9.60\% on CFL, 20.75\% on GQL, and 16.94\% on DPiso. Yet, the filtering time of CECI is increased by 0.05\%. We suspect that the overhead to access small amount of neighbors of any vertex in the LPI is greater than accessing the set of all neighbors directly when the number of neighbors $|N(u)|$ of that vertex is relatively small.
+
+
+<figure>
+    <img src="https://github.com/AltheimIcarus/l2Match/blob/master/Result/compareLPF_filter.png" width="500" alt="Avg. and standard deviation of difference in filtering time over the number of query edges |E(Q)|" />
+    <figcaption style="font-style: italic;">Avg. and standard deviation of difference in filtering time over the number of query edges |E(Q)|</figcaption>
+</figure>
+
+
+<figure>
+    <img src="https://github.com/AltheimIcarus/l2Match/blob/master/Result/compareLPF_cand.png" width="500" alt="Avg. and standard deviation of difference in candidate count over the number of query edges |E(Q)|" />
+    <figcaption style="font-style: italic;">Avg. and standard deviation of difference in candidate count over the number of query edges |E(Q)|</figcaption>
+</figure>
+
+
+## Performance of JR Method against CECI, CFL, and GQL in the Enumeration Step
+Figures below show the average improvement achieved with JR method in the enumeration step are 12.35\% on CECI, 5.88\% on CFL and 41.62\% on GQL in terms of the query time (total time elapsed), and 46.47\% on CECI, 55.26\% on CFL and 52.94\% on GQL in terms of the number of search nodes. 
+Average performance different calculated as the percentage decrease $\overline{p}=100(\Sigma_{i=1}^{N} (x_i^{ORI}-x_i^{JR})\div x_i^{ORI})\div N$ where $x$ is the value of the query time or the number of search nodes, $ORI$ and $JR$ represents the original and optimized algorithm respectively, and $N$ is the number of easy (E) queries.
+DPiso is excluded as JR method is not compatible with dynamic enumeration order of the DPiso algorithm. 
+
+
+<figure>
+    <img src="https://github.com/AltheimIcarus/l2Match/blob/master/Result/compareJR_query.png" width="500" alt="Avg. and standard deviation of difference in query time over the number of query edges |E(Q)|" />
+    <figcaption style="font-style: italic;">Avg. and standard deviation of difference in query time over the number of query edges |E(Q)|</figcaption>
+</figure>
+
+
+<figure>
+    <img src="https://github.com/AltheimIcarus/l2Match/blob/master/Result/compareJR_callcount.png" width="500" alt="Avg. and standard deviation of difference in the number of search nodes over the number of query edges |E(Q)|" />
+    <figcaption style="font-style: italic;">Avg. and standard deviation of difference in the number of search nodes over the number of query edges |E(Q)|</figcaption>
+</figure>
