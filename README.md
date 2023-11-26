@@ -15,8 +15,7 @@ We report two types of analysis:
 
 (2) the number of solved queries for each algorithm when one or more algorithms exceeded time limit to solve any query.
 
-Our paper is currently under the reviewing process. Kindly contact us should you have any enquiry.
-
+Our paper is accepted by ICEIC2024. Kindly contact us should you have any enquiry. [Full Text Manuscript](https://github.com/AltheimIcarus/l2Match/blob/master/ChiQinCheng-ICEIC.pdf)
 
 ## Metrics
 The metrics are as such:
