@@ -1997,7 +1997,7 @@ EvaluateQuery::exploreL2Match(const Graph *data_graph, const Graph *query_graph,
                                 ui *order, size_t &output_limit_num, size_t &call_count, TimeOutException* timeout) {
 
     int max_depth = query_graph->getVerticesCount();
-
+    
     // JR variables
     // recompute fn/child candidate set if bn/parent's candidate has changed
     int* childs = new int[max_depth]; // fn and child of any query vertex
@@ -2008,6 +2008,7 @@ EvaluateQuery::exploreL2Match(const Graph *data_graph, const Graph *query_graph,
     ui data_vertices_count = data_graph->getVerticesCount();
     ui max_valid_candidates_count = 0;
     for (int i = 0; i < max_depth; ++i) {
+        //if (candidates_count[i] == 0) return 0;
         if (candidates_count[i] > max_valid_candidates_count) {
             max_valid_candidates_count = candidates_count[i];
         }
@@ -2028,7 +2029,6 @@ EvaluateQuery::exploreL2Match(const Graph *data_graph, const Graph *query_graph,
         VertexID u = order[i];
         int max_idx = 0;
         ui deg = 0;
-
         const ui* nbrs = query_graph->getVertexNeighbors(u, deg);
         for (int j=0; j<deg; ++j) {
             int u_b_idx = order_idx[ nbrs[j] ];
@@ -2061,7 +2061,7 @@ EvaluateQuery::exploreL2Match(const Graph *data_graph, const Graph *query_graph,
             VertexID v = valid_candidates[cur_depth][idx[cur_depth]];
             idx[cur_depth] += 1;
 
-            if (visited_vertices[v]) {            
+            if (visited_vertices[v]) {
                 continue;
             }
 

@@ -353,6 +353,7 @@ size_t BuildTable::computeMemoryCostInBytes(const Graph *query_graph, ui *candid
 
         // NTE_Candidates
         for (ui j = 0; j < u_node.bn_count_; ++j) {
+            if (NTE_Candidates.size() == 0) continue;
             VertexID u_bn = u_node.bn_[j];
             memory_cost_in_bytes += NTE_Candidates[u][u_bn].size() * per_element_size;
             for (auto iter = NTE_Candidates[u][u_bn].begin(); iter != NTE_Candidates[u][u_bn].end(); ++iter) {

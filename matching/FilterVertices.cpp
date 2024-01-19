@@ -667,6 +667,7 @@ bool
 FilterVertices::l2MatchFilter(const Graph *data_graph, const Graph *query_graph, ui **&candidates, ui *&candidates_count,
                            ui *&order, TreeNode *&tree,  std::vector<std::unordered_map<VertexID, std::vector<VertexID >>> &TE_Candidates,
                            std::vector<std::vector<std::unordered_map<VertexID, std::vector<VertexID>>>> &NTE_Candidates) {
+
     GenerateFilteringPlan::generateL2MatchFilterPlan(data_graph, query_graph, tree, order);
     //int level_count;
     //ui* level_offset;
@@ -679,7 +680,6 @@ FilterVertices::l2MatchFilter(const Graph *data_graph, const Graph *query_graph,
     // Find the pivots.
     VertexID root = order[0];
     computeCandidateWithNLF_LPF(data_graph, query_graph, root, candidates_count[root], candidates[root]);
-
     if (candidates_count[root] == 0)
         return false;
 
@@ -783,7 +783,6 @@ FilterVertices::l2MatchFilter(const Graph *data_graph, const Graph *query_graph,
             flag[v] = 0;
         }
     }
-
     // NOVEL Reverse BCP + Refinement.
     NTE_Candidates.resize(query_vertices_count);
     for (auto& value : NTE_Candidates) {
@@ -941,10 +940,8 @@ FilterVertices::l2MatchFilter(const Graph *data_graph, const Graph *query_graph,
             local_cardinality[v] = 0;
         }
     }
-
     // compact and sort candidates.
     compactSortCandidates(candidates, candidates_count, query_vertices_count);
-
     for (ui i = 0; i < query_vertices_count; ++i) {
         if (candidates_count[i] == 0) {
             printf("early termination\n");
@@ -990,7 +987,6 @@ FilterVertices::l2MatchFilter(const Graph *data_graph, const Graph *query_graph,
             }
         }
     }
-
     return true;
 }
 
@@ -2096,6 +2092,7 @@ FilterVertices::computeCandidateWithNLF(const Graph *data_graph, const Graph *qu
 #endif
     ui data_vertex_num;
     const ui* data_vertices = data_graph->getVerticesByLabel(label, data_vertex_num);
+    
     count = 0;
     for (ui j = 0; j < data_vertex_num; ++j) {
         ui data_vertex = data_vertices[j];
@@ -2131,7 +2128,6 @@ FilterVertices::computeCandidateWithNLF(const Graph *data_graph, const Graph *qu
 #endif
         }
     }
-
 }
 
 // NOVEL l2Match
@@ -2141,24 +2137,23 @@ FilterVertices::computeCandidateWithNLF_LPF(const Graph *data_graph, const Graph
     LabelID label = query_graph->getVertexLabel(query_vertex);
     ui degree;
     const ui* adjs = query_graph->getVertexNeighbors(query_vertex, degree);
+    const std::unordered_map<LabelID, ui>* query_vertex_nlf = query_graph->getVertexNLF(query_vertex);
 
     LabelID min_label = 1;
     ui min_lp_freq = UINT_MAX;
-    for (ui i=0; i<degree; ++i) {
-        LabelID neighbor_label = query_graph->getVertexLabel(adjs[i]);
+    for (auto element : *query_vertex_nlf) {
+        LabelID neighbor_label = element.first;
         ui freq = data_graph->getLabelPairFrequency(label, neighbor_label);
-        if (freq < min_lp_freq) {
+        if (freq < min_lp_freq && freq>0) {
             min_lp_freq = freq;
             min_label = neighbor_label;
         }
     }
     
-
-#if OPTIMIZED_LABELED_GRAPH == 1
-    const std::unordered_map<LabelID, ui>* query_vertex_nlf = query_graph->getVertexNLF(query_vertex);
-#endif
     auto it = data_graph->getLabelPairIterator(label, min_label);
     count = 0;
+    if (it == data_graph->label_pairs[label].end()) return;
+    
     for (ui i : it->second) {
         ui data_vertex = i;
         if (data_graph->getVertexDegree(data_vertex) >= degree) {

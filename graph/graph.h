@@ -47,6 +47,7 @@ private:
     std::unordered_map<LabelID, ui>* nlf_;
     std::unordered_map<LabelID, std::pair<ui,ui>>* nlo; // nlo[u][label] = (start index, count) for list of adjs with same label id
     // Label Pair Index [L(u)][L(v)] = [u'], v' is accessible via CSR thus not required in the label pair index
+public:
     std::vector<std::unordered_map<LabelID, std::vector<VertexID >>> label_pairs;
 
 #endif
@@ -108,6 +109,8 @@ public:
 
 public:
     void loadGraphFromFile(const std::string& file_path);
+    void loadGraphFromVertexFile(const std::string &vertex_path, const std::string &edge_path);
+    void loadGraphFromEdgeFile(const std::string& file_path);
     void loadGraphFromFileBeta(const std::string& file_path);
     void loadGraphFromFileCompressed(const std::string& degree_path, const std::string& edge_path,
                                      const std::string& label_path);
@@ -197,6 +200,23 @@ public:
             return it->second.size();
         return 0;
     }
+#if OPTIMIZED_LABELED_GRAPH == 1
+    const ui getLabelPairFrequency2(const LabelID u_label, const LabelID neighbor_label) const {
+        ui count;
+        const ui* vertices_by_label = getVerticesByLabel(u_label, count);
+
+        ui freq = 0;
+        for (ui i=0; i<count; ++i) {
+            ui u = vertices_by_label[i];
+
+            const std::unordered_map<LabelID, ui>* this_vertex_nlf = getVertexNLF(u);
+            auto it = this_vertex_nlf->find(neighbor_label);
+            if (it != this_vertex_nlf->end())
+                freq += 1;
+        }
+        return freq;
+    }
+#endif
     // l2Match
     const std::unordered_map<LabelID, std::vector<ui>>::const_iterator getLabelPairIterator(const LabelID u_label, const LabelID neighbor_label) const {
         return label_pairs[u_label].find(neighbor_label);

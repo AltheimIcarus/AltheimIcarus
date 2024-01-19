@@ -630,6 +630,7 @@ int main(int argc, char** argv) {
     std::string input_query_graph_file = command.getQueryGraphFilePath();
     std::string input_data_graph_file = command.getDataGraphFilePath();
     std::string input_filter_type = command.getFilterType();
+    std::string dataset = split(input_query_graph_file, '/')[4];
     bool is_debug = true;
     if (argc == 8) {
         std::cout << argv[7] << std::endl;
@@ -642,6 +643,7 @@ int main(int argc, char** argv) {
     std::cout << "\tData Graph: " << input_data_graph_file << std::endl;
     std::cout << "\tQuery Graph: " << input_query_graph_file << std::endl;
     std::cout << "\tFilter Type: " << input_filter_type << std::endl;
+    std::cout << "\tDataset: " << dataset << std::endl;
     std::cout << "--------------------------------------------------------------------" << std::endl;
 
     /**
@@ -653,14 +655,20 @@ int main(int argc, char** argv) {
     auto start = std::chrono::high_resolution_clock::now();
 
     Graph* query_graph = new Graph(true);
-    //query_graph->loadGraphFromFile(input_query_graph_file);
-    query_graph->loadGraphFromFileBeta(input_query_graph_file);
+    query_graph->loadGraphFromFile(input_query_graph_file);
+    //query_graph->loadGraphFromFileBeta(input_query_graph_file);
     query_graph->buildCoreTable();
 
     Graph* data_graph = new Graph(true);
 
-    //data_graph->loadGraphFromFile(input_data_graph_file);
-    data_graph->loadGraphFromFileBeta(input_data_graph_file);
+    data_graph->loadGraphFromFile(input_data_graph_file);
+    
+    // label dataset
+    // std::string edge_file = "../../test/dataset/label/data_graph/10000_0.05_20.edges";
+    // data_graph->loadGraphFromVertexFile(input_data_graph_file, edge_file);
+    
+    // ERP dataset
+    // data_graph->loadGraphFromFileBeta(input_data_graph_file);
 
     auto end = std::chrono::high_resolution_clock::now();
 
@@ -703,10 +711,12 @@ int main(int argc, char** argv) {
     std::vector<std::unordered_map<VertexID, std::vector<VertexID >>> TE_Candidates;
     std::vector<std::vector<std::unordered_map<VertexID, std::vector<VertexID>>>> NTE_Candidates;
     bool build_edge_index = true;
+    bool filter_pass = false;
     
     if (input_filter_type == "l2MatchJR") { // complete version
         build_edge_index = false;
-        FilterVertices::l2MatchFilter(data_graph, query_graph, candidates, candidates_count, l2Match_order, l2Match_tree, TE_Candidates, NTE_Candidates);
+        filter_pass = FilterVertices::l2MatchFilter(data_graph, query_graph, candidates, candidates_count, l2Match_order, l2Match_tree, TE_Candidates, NTE_Candidates);
+        //std::cout << l2Match_order[0] << " [" << candidates_count[l2Match_order[0]] << ", " << candidates[l2Match_order[0]][0] << "]\n";
         //FilterVertices::l2MatchFilterB(data_graph, query_graph, candidates, candidates_count, l2Match_order, l2Match_tree);
     } else if (input_filter_type == "l2MatchA") { // w/o LPF
         build_edge_index = false;
@@ -719,16 +729,16 @@ int main(int argc, char** argv) {
         FilterVertices::l2MatchFilterNew(data_graph, query_graph, candidates, candidates_count, l2Match_order, l2Match_tree);
     } else if (input_filter_type == "GQL") {
         build_edge_index = true;
-        FilterVertices::GQLFilter(data_graph, query_graph, candidates, candidates_count);
+        filter_pass = FilterVertices::GQLFilter(data_graph, query_graph, candidates, candidates_count);
     } else if (input_filter_type == "CFL") {
         build_edge_index = true;
-        FilterVertices::CFLFilter(data_graph, query_graph, candidates, candidates_count, cfl_order, cfl_tree);
+        filter_pass = FilterVertices::CFLFilter(data_graph, query_graph, candidates, candidates_count, cfl_order, cfl_tree);
     } else if (input_filter_type == "DPiso") {
         build_edge_index = true;
-        FilterVertices::DPisoFilter(data_graph, query_graph, candidates, candidates_count, dpiso_order, dpiso_tree);
+        filter_pass = FilterVertices::DPisoFilter(data_graph, query_graph, candidates, candidates_count, dpiso_order, dpiso_tree);
     } else if (input_filter_type == "CECI") {
         build_edge_index = false;
-        FilterVertices::CECIFilter(data_graph, query_graph, candidates, candidates_count, ceci_order, ceci_tree, TE_Candidates, NTE_Candidates);
+        filter_pass = FilterVertices::CECIFilter(data_graph, query_graph, candidates, candidates_count, ceci_order, ceci_tree, TE_Candidates, NTE_Candidates);
     } else if (input_filter_type == "TEST") {
         build_edge_index = true;
         FilterVertices::l2MatchFilterNew(data_graph, query_graph, candidates, candidates_count,
@@ -873,6 +883,7 @@ int main(int argc, char** argv) {
 
     //goto ENDE;
     try {
+        if (!filter_pass) throw filter_pass;
         //const auto time_limit = start + std::chrono::duration<double, std::nano>(300000000000); // end time = current time + 5 minutes
         TimeOutException* timeout_e = new TimeOutException();
         std::thread([&timeout_e]{
@@ -929,6 +940,8 @@ int main(int argc, char** argv) {
         if (timeout_e->is_throwable)
             throw (*timeout_e);
     
+    } catch (bool e) {
+        enumeration_time_in_ns = 0.0;
     } catch (...) {
         enumeration_time_in_ns = 300000000000.0;
         std::cout << NANOSECTOSEC(enumeration_time_in_ns) << " : " << embedding_count << std::endl;
@@ -994,7 +1007,7 @@ int main(int argc, char** argv) {
     double total_time_in_ns = preprocessing_time_in_ns + enumeration_time_in_ns;
 
     // Write results to a CSV file
-    std::string root_dir = "result/JR";
+    std::string root_dir = "result/phase";
     fs::create_directory(root_dir);
     
     std::string output_file = "";
@@ -1002,7 +1015,7 @@ int main(int argc, char** argv) {
 
     if (is_debug) {
         double data_average_deg = data_graph->getAverageDegree();
-        output_file = root_dir + "/ERP.csv";
+        output_file = root_dir + "/result.csv";
         if (!fs::exists(output_file))
         {
             results.emplace_back(std::string("No.;") + "Algorithm;"
@@ -1010,11 +1023,19 @@ int main(int argc, char** argv) {
                 + "Indexing Time (s);" + "Ordering Time (s);"
                 + "Enumeration Time (s);" + "Query Time (s);"
                 + "Embedding Count;"
-                + "Call Count;" + "|V|;" + "|E|;" + "d;" + "avg deg"
+                + "Call Count;" + "|V|;" + "|E|;" + "d;" + "|L(D)|;" + "p(Q);" + "p(D)"
             );
         }
 
-        results.emplace_back(split(input_query_graph_file, '/')[5] + ";" + input_filter_type + ";"
+        std::string output_filename = split(input_query_graph_file, '/')[6];
+        auto test_parameters = split(output_filename, '_');
+        std::string label_size = split(test_parameters[2], '.')[0];
+        std::string query_p = test_parameters[1];
+
+        std::string data_p = split(input_data_graph_file, '/')[6];
+        data_p = split(data_p, '_')[1];
+
+        results.emplace_back(output_filename + ";" + input_filter_type + ";"
             + std::to_string(total_candidates_count) + ";" + doubleToString(NANOSECTOSEC(filter_vertices_time_in_ns), 6) + ";"
             + doubleToString(NANOSECTOSEC(build_table_time_in_ns), 6) + ";" + doubleToString(NANOSECTOSEC(generate_query_plan_time_in_ns), 6) + ";"
             + doubleToString(NANOSECTOSEC(enumeration_time_in_ns), 6) + ";" + doubleToString(NANOSECTOSEC(total_time_in_ns), 6) + ";"
@@ -1023,7 +1044,7 @@ int main(int argc, char** argv) {
             + std::to_string(query_vertices_count) + ";"
             + std::to_string(query_edges_count) + ";"
             + doubleToString(query_density, 6) + ";"
-            + doubleToString(data_average_deg, 6)
+            + label_size + ";" + query_p + ";" + data_p
         );
     } else {
         output_file = root_dir + "/LPF.csv";

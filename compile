@@ -92,3 +92,7 @@ make
 cd matching
 
 ./test.out -d ../../test/dataset/youtube/data_graph/youtube.graph -q ../../test/dataset/youtube/query_graph/query_sparse_8_1.graph -filter GQL
+
+
+./SubgraphMatching.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_16_72.graph -filter CFL -order CFL -engine EXPLORE -num MAX
+./SubgraphMatching.out -d ../../test/dataset/dblp/data_graph/dblp.graph -q ../../test/dataset/dblp/query_graph/query_dense_16_72.graph -filter TEST -order TEST -engine TEST -num MAX

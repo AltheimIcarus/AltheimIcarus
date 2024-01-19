@@ -210,6 +210,111 @@ void Graph::loadGraphFromFile(const std::string &file_path) {
 #endif
 }
 
+void Graph::loadGraphFromVertexFile(const std::string &vertex_path, const std::string &edge_path) {
+    std::ifstream infile(vertex_path);
+
+    if (!infile.is_open()) {
+        std::cout << "Can not open the vertex file " << vertex_path << " ." << std::endl;
+        exit(-1);
+    }
+
+    char type;
+    infile >> type >> vertices_count_ >> edges_count_;
+    offsets_ = new ui[vertices_count_ +  1];
+    offsets_[0] = 0;
+
+    neighbors_ = new VertexID[edges_count_ * 2];
+    labels_ = new LabelID[vertices_count_];
+    labels_count_ = 0;
+    max_degree_ = 0;
+
+    LabelID max_label_id = 0;
+
+    while (infile >> type) {
+        if (type == 'v') { // Read vertex.
+            VertexID id;
+            LabelID  label;
+            ui degree;
+            infile >> id >> label >> degree;
+
+            labels_[id] = label;
+            offsets_[id + 1] = offsets_[id] + degree;
+
+            if (degree > max_degree_) {
+                max_degree_ = degree;
+            }
+
+            if (labels_frequency_.find(label) == labels_frequency_.end()) {
+                labels_frequency_[label] = 0;
+                if (label > max_label_id)
+                    max_label_id = label;
+            }
+
+            labels_frequency_[label] += 1;
+        }
+    }
+
+    infile.close();
+    labels_count_ = (ui)labels_frequency_.size() > (max_label_id + 1) ? (ui)labels_frequency_.size() : max_label_id + 1;
+
+    for (auto element : labels_frequency_) {
+        if (element.second > max_label_frequency_) {
+            max_label_frequency_ = element.second;
+        }
+    }
+
+    BuildReverseIndex();
+    //computeSpatialDistance();
+
+    loadGraphFromEdgeFile(edge_path);
+}
+
+void Graph::loadGraphFromEdgeFile(const std::string &file_path) {
+    std::ifstream infile(file_path);
+
+    if (!infile.is_open()) {
+        std::cout << "Can not open the edge file " << file_path << " ." << std::endl;
+        exit(-1);
+    }
+
+    char type;
+    
+    std::vector<ui> neighbors_offset(vertices_count_, 0);
+
+    while (infile >> type) {
+        if (type == 'e') { // Read edge only.
+            VertexID begin;
+            VertexID end;
+            infile >> begin >> end;
+
+            ui offset = offsets_[begin] + neighbors_offset[begin];
+            neighbors_[offset] = end;
+
+            offset = offsets_[end] + neighbors_offset[end];
+            neighbors_[offset] = begin;
+
+            neighbors_offset[begin] += 1;
+            neighbors_offset[end] += 1;
+        }
+    }
+
+    infile.close();
+    
+    for (ui i = 0; i < vertices_count_; ++i) {
+        std::sort(neighbors_ + offsets_[i], neighbors_ + offsets_[i + 1]);
+    }
+
+    //computeSpatialDistance();
+
+#if OPTIMIZED_LABELED_GRAPH == 1
+    if (enable_label_offset_) {
+        BuildNLF();
+        // BuildLabelOffset();
+    }
+#endif
+}
+
+
 void Graph::printGraphMetaData() {
     std::cout << "|V|: " << vertices_count_ << ", |E|: " << edges_count_ << ", |\u03A3|: " << labels_count_ << std::endl;
     std::cout << "Max Degree: " << max_degree_ << ", Max Label Frequency: " << max_label_frequency_ << std::endl;
